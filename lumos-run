@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# ╔══════════════════════════════════════════════╗
+# ║           lumos-run — ProspectMind           ║
+# ║   Only works inside the prospectmind dir     ║
+# ╚══════════════════════════════════════════════╝
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+EXPECTED_DIR="/Users/jubayerjuhan/Juhanius/prospectmind"
+
+# ── Guard: only runs inside this project ────────
+if [ "$SCRIPT_DIR" != "$EXPECTED_DIR" ]; then
+  echo "❌  lumos-run only works inside prospectmind."
+  echo "    Run it from: $EXPECTED_DIR"
+  exit 1
+fi
+
+LOG_DIR="$SCRIPT_DIR/logs"
+mkdir -p "$LOG_DIR"
+
+BACKEND_LOG="$LOG_DIR/backend.log"
+FRONTEND_LOG="$LOG_DIR/frontend.log"
+
+# ── Kill anything on our ports ───────────────────
+echo "🔪  Clearing ports 5001 & 5173..."
+lsof -ti tcp:5001 | xargs kill -9 2>/dev/null
+lsof -ti tcp:5173 | xargs kill -9 2>/dev/null
+sleep 1
+
+# ── Clear old logs ───────────────────────────────
+> "$BACKEND_LOG"
+> "$FRONTEND_LOG"
+
+# ── Start backend (logs to file + terminal) ──────
+echo "🚀  Starting backend  (port 5001)..."
+cd "$SCRIPT_DIR/server" && npm run dev 2>&1 | tee -a "$BACKEND_LOG" &
+BACKEND_PID=$!
+
+# ── Start frontend (logs to file + terminal) ─────
+echo "🌐  Starting frontend (port 5173)..."
+cd "$SCRIPT_DIR/client" && npm run dev 2>&1 | tee -a "$FRONTEND_LOG" &
+FRONTEND_PID=$!
+
+sleep 2
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  ✨  ProspectMind is running!"
+echo ""
+echo "  Frontend →  http://localhost:5173"
+echo "  Backend  →  http://localhost:5001"
+echo ""
+echo "  📄 Logs saved to:"
+echo "     Backend  → logs/backend.log"
+echo "     Frontend → logs/frontend.log"
+echo ""
+echo "  👀 To watch backend logs in another terminal:"
+echo "     tail -f logs/backend.log"
+echo ""
+echo "  Press Ctrl+C to stop everything"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# ── Shutdown both on Ctrl+C ──────────────────────
+trap "echo ''; echo '🛑  Shutting down...'; kill $BACKEND_PID $FRONTEND_PID 2>/dev/null; exit 0" SIGINT SIGTERM
+
+wait
