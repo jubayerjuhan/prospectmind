@@ -9,7 +9,7 @@
 
 **ProspectMind** is a B2B SaaS that takes minimal prospect data (name + company) and runs it through a 5-layer AI pipeline to auto-enrich profiles, classify roles, score compatibility, and generate hyper-personalized outreach messages.
 
-Built with: **Vite + React** (frontend) · **Node.js + Express** (backend) · **MongoDB** (database) · **Google Gemini API** (AI) · **Stripe** (billing) · **Resend** (email)
+Built with: **Vite + React** (frontend) · **Node.js + Express** (backend) · **MongoDB** (database) · **Groq API** (AI) · **Stripe** (billing) · **Resend** (email)
 
 Initial use case: Web3 recruiting intelligence (powering GoodHive internally), but built as a standalone multi-tenant SaaS.
 
@@ -27,7 +27,7 @@ prospectmind/
 │       ├── controllers/      # Request handlers
 │       ├── middleware/        # auth.js (JWT protect, requirePlan, requireRole)
 │       └── services/
-│           ├── ai/           # claudeClient.js → Gemini wrapper
+│           ├── ai/           # groqClient.js + claudeClient.js compatibility wrapper
 │           └── pipeline/     # 5-layer AI pipeline (discovery → outreach)
 └── docs/            # All project documentation (see routing table below)
 ```
@@ -58,7 +58,7 @@ prospectmind/
 ## Key Conventions
 
 - **ES Modules** everywhere (`import/export`, `"type": "module"` in server `package.json`)
-- **All AI calls** go through `server/src/services/ai/claudeClient.js` — the `askClaude()` function (Gemini under the hood)
+- **All AI calls** go through `server/src/services/ai/claudeClient.js` — the `askClaude()` compatibility function (Groq under the hood). New modular Groq usage can import `askGroq()` from `server/src/services/ai/groqClient.js`.
 - **Pipeline is synchronous per prospect** — `runner.js` calls all 5 layers in sequence, updates DB at each step
 - **Multi-tenant** — every DB query must be scoped to `organization: req.organization._id`
 - **JWT auth** — access token (15m) + refresh token (7d). Use `protect` middleware on all private routes
@@ -75,7 +75,7 @@ prospectmind/
 | React | 19 |
 | Express | 5 |
 | Mongoose | 8 |
-| Gemini model | `gemini-2.0-flash` |
+| Groq model | `llama-3.3-70b-versatile` by default, with fallback models via `GROQ_FALLBACK_MODELS` |
 | Vite | 6 |
 | TailwindCSS | v4 (via `@tailwindcss/vite`) |
 
@@ -86,7 +86,9 @@ prospectmind/
 | Key | Required | Description |
 |---|---|---|
 | `MONGODB_URI` | ✅ | MongoDB connection string |
-| `GEMINI_API_KEY` | ✅ | Google Gemini API key |
+| `GROQ_API_KEY` | ✅ | Groq API key |
+| `GROQ_MODEL` | Optional | Default Groq model for AI calls |
+| `GROQ_FALLBACK_MODELS` | Optional | Comma-separated fallback models tried when the primary model fails |
 | `JWT_SECRET` | ✅ | Access token signing key |
 | `JWT_REFRESH_SECRET` | ✅ | Refresh token signing key |
 | `STRIPE_SECRET_KEY` | Billing only | Stripe secret key |

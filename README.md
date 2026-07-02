@@ -18,7 +18,7 @@ ProspectMind takes minimal prospect data (name + company) and runs it through a 
 
 - **Frontend**: Vite + React + TailwindCSS + React Query
 - **Backend**: Node.js + Express + MongoDB (Mongoose)
-- **AI**: Google Gemini API (gemini-1.5-flash — free tier)
+- **AI**: Groq API (`llama-3.3-70b-versatile` by default)
 - **Billing**: Stripe
 - **Email**: Resend
 
@@ -39,7 +39,7 @@ cd ../client && npm install
 ```bash
 cd server
 cp .env.example .env
-# Fill in your keys: MONGODB_URI, GEMINI_API_KEY, STRIPE_*, RESEND_API_KEY
+# Fill in your keys: MONGODB_URI, GROQ_API_KEY, STRIPE_*, RESEND_API_KEY
 ```
 
 ### 3. Run

@@ -1,7 +1,7 @@
 # AI Pipeline
 
 **File:** `server/src/services/pipeline/runner.js` (orchestrator)
-**AI Client:** `server/src/services/ai/claudeClient.js` → Google Gemini `gemini-2.0-flash`
+**AI Client:** `server/src/services/ai/claudeClient.js` → Groq via `server/src/services/ai/groqClient.js`
 
 ---
 
@@ -15,7 +15,7 @@ pending → discovering → enriching → classifying → scoring → generating
                                                                         ↘ failed (on error)
 ```
 
-All 5 layers call `askClaude()` which sends prompts to Gemini and parses the JSON response.
+All 5 layers call `askClaude()` which sends prompts to Groq and parses the JSON response. If the primary model fails, the Groq client retries the configured fallback models before failing the pipeline. New code can call `askGroq()` directly when it needs to choose a different Groq model or generation settings.
 
 ---
 
@@ -25,7 +25,7 @@ All 5 layers call `askClaude()` which sends prompts to Gemini and parses the JSO
 **Input:** `{ firstName, lastName, company, typeHint, rawEmail, rawLinkedin, ... }`
 
 **What it does:**
-- Sends prospect data to Gemini
+- Sends prospect data to the AI provider
 - Asks it to infer likely LinkedIn URL, GitHub, X, Telegram, email
 - Returns a confidence score (0–100) and reasoning
 - Also returns suggested search queries for future real-scraping integration
@@ -42,7 +42,7 @@ All 5 layers call `askClaude()` which sends prompts to Gemini and parses the JSO
 }
 ```
 
-**✅ Implemented:** Uses Serper API (Google Search) to find real LinkedIn/GitHub URLs. Gemini only verifies from real candidates — it does NOT guess. Falls back gracefully if `SERPER_API_KEY` is not set.
+**✅ Implemented:** Uses Serper API (Google Search) to find real LinkedIn/GitHub URLs. AI only verifies from real candidates — it does NOT guess. Falls back gracefully if `SERPER_API_KEY` is not set.
 
 ---
 
@@ -54,7 +54,7 @@ All 5 layers call `askClaude()` which sends prompts to Gemini and parses the JSO
 **What it does:**
 1. Calls GitHub public API (`/users/:username` + `/repos`) — free, no auth required
 2. Extracts: repos, stars, top languages, recent repo names, bio, location
-3. Sends everything to Gemini to synthesize a complete profile
+3. Sends everything to Groq to synthesize a complete profile
 
 **Output:**
 ```json
@@ -177,13 +177,15 @@ All 5 layers call `askClaude()` which sends prompts to Gemini and parses the JSO
 
 ---
 
-## Gemini Prompt Design Rules
+## AI Prompt Design Rules
 
 All prompts follow this structure:
 ```js
 askClaude({
   systemPrompt: "You are a [role]. [context]. Always return valid JSON.",
   userPrompt:   "Here is the data: ... Return JSON in this shape: {...}",
+  model:        "llama-3.3-70b-versatile",
+  fallbackModels: ["openai/gpt-oss-120b", "qwen/qwen3-32b"],
   maxTokens:    2048
 })
 ```

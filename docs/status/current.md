@@ -18,11 +18,11 @@
 - [x] Prospect CRUD (create, list, get, archive)
 - [x] Bulk CSV prospect creation
 - [x] Pipeline runner (orchestrates all 5 layers)
-- [x] Layer 1: Identity resolution (Gemini)
-- [x] Layer 2: Profile enrichment (Gemini + GitHub public API)
-- [x] Layer 3: Role classification (Gemini)
-- [x] Layer 4: Compatibility scoring (Gemini)
-- [x] Layer 5: Outreach message generation (Gemini)
+- [x] Layer 1: Identity resolution (Groq)
+- [x] Layer 2: Profile enrichment (Groq + GitHub public API)
+- [x] Layer 3: Role classification (Groq)
+- [x] Layer 4: Compatibility scoring (Groq)
+- [x] Layer 5: Outreach message generation (Groq)
 - [x] Message approval endpoint (approve + optional human edit)
 - [x] Pipeline retry on failure
 - [x] Stripe checkout + billing portal + webhook handler
@@ -45,7 +45,7 @@
 - [x] Sidebar with nav + user info + logout
 
 ### Infrastructure
-- [x] Gemini API key configured (`gemini-2.0-flash`)
+- [x] Groq API key documented (`llama-3.3-70b-versatile` default)
 - [x] `.env.example` with all required variables documented
 - [x] `.gitignore` (env files excluded)
 - [x] `port_dust` global CLI command (kills dev ports)
@@ -54,7 +54,7 @@
 
 ## ⚠️ Built But Not Tested End-to-End
 
-- Pipeline (needs real MongoDB + Gemini key to test full flow)
+- Pipeline (needs real MongoDB + Groq key to test full flow)
 - Stripe webhooks (needs Stripe CLI for local testing)
 - Resend emails (needs Resend API key)
 - Bulk CSV import (client parses CSV, backend creates prospects)
@@ -89,7 +89,7 @@
 
 | Variable | Status |
 |---|---|
-| `GEMINI_API_KEY` | ✅ Set and tested |
+| `GROQ_API_KEY` | ⬜ Required for pipeline testing |
 | `MONGODB_URI` | ⬜ Set to localhost — needs MongoDB running |
 | `JWT_SECRET` | ✅ Set |
 | `JWT_REFRESH_SECRET` | ✅ Set |

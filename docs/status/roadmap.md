@@ -9,7 +9,7 @@
 |---|---|
 | MERN stack setup | ✅ Done |
 | JWT multi-tenant auth | ✅ Done |
-| 5-layer Gemini AI pipeline | ✅ Done |
+| 5-layer Groq AI pipeline | ✅ Done |
 | Prospect management (CRUD + bulk) | ✅ Done |
 | Message generation + human review | ✅ Done |
 | Stripe billing (3 plans) | ✅ Done |
@@ -25,7 +25,7 @@
 
 | Feature | Priority |
 |---|---|
-| **Serper API integration** — pass real Google search results to Gemini for identity resolution | 🔴 High |
+| **Serper API integration** — pass real Google search results to AI for identity resolution | 🔴 High |
 | **LinkedIn scraping (Apify)** — pull real profile data for enrichment | 🔴 High |
 | **Hunter.io** — verified email finding | 🟡 Medium |
 | **ENS resolution** — resolve `.eth` addresses to profiles | 🟡 Medium |

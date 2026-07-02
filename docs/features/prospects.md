@@ -4,6 +4,9 @@
 - `server/src/models/Prospect.js` — full schema
 - `server/src/controllers/prospectController.js` — all handlers
 - `server/src/routes/prospects.js` — route definitions
+- `server/src/models/ProspectList.js` — manual and dynamic prospect list schema
+- `server/src/controllers/prospectListController.js` — list CRUD and membership handlers
+- `server/src/routes/prospectLists.js` — prospect list route definitions
 
 ---
 
@@ -63,6 +66,20 @@ created (pending) → pipeline runs → ready → messages approved → outreach
 | DELETE | `/api/prospects/:id` | Soft archive (isArchived: true) |
 | POST | `/api/prospects/:id/retry` | Re-run pipeline on failed prospect |
 | PATCH | `/api/prospects/:id/messages/:msgId/approve` | Approve (+ optional edit) a message |
+
+### Prospect Lists
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/prospect-lists` | List manual + dynamic prospect lists |
+| POST | `/api/prospect-lists` | Create manual or dynamic list |
+| GET | `/api/prospect-lists/:id` | Paginated lightweight prospect summaries for a list |
+| PATCH | `/api/prospect-lists/:id` | Rename list, update dynamic filters, or replace manual membership |
+| DELETE | `/api/prospect-lists/:id` | Soft archive a list |
+| POST | `/api/prospect-lists/:id/prospects` | Add prospects to a manual list |
+| DELETE | `/api/prospect-lists/:id/prospects` | Remove prospects from a manual list |
+
+Manual lists store only prospect reference IDs. Dynamic lists store `{ search, status, priority }` filters and resolve live matches at read time.
 
 ---
 

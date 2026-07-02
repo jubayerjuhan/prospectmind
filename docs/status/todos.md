@@ -19,7 +19,7 @@ These are blocking. Do these first.
 - [ ] **Register an account** — test full register flow, org creation, JWT
 - [ ] **Add a prospect manually** — verify it saves to DB with `pipelineStatus: "pending"`
 - [ ] **Watch pipeline run** — open prospect detail, confirm status updates through all 5 stages
-- [ ] **Verify Gemini output** — check enrichedProfile, classification, score, messages in DB
+- [ ] **Verify Groq output** — check enrichedProfile, classification, score, messages in DB
 
 ---
 

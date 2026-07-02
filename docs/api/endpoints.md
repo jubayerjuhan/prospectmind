@@ -31,6 +31,20 @@ All routes require auth. All queries scoped to `req.organization._id`.
 | POST | `/prospects/:id/retry` | 🔒 | Re-run pipeline |
 | PATCH | `/prospects/:id/messages/:msgId/approve` | 🔒 | Approve message. Body: `{ editedBody? }` |
 
+## Prospect Lists — `/api/prospect-lists`
+
+All routes require auth. All queries scoped to `req.organization._id`.
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/prospect-lists` | 🔒 | List prospect lists. Query: `?page=&limit=` |
+| POST | `/prospect-lists` | 🔒 | Create a list. Manual body: `{ name, type: "manual", prospectIds? }`. Dynamic body: `{ name, type: "dynamic", filters: { search?, status?, priority? } }` |
+| GET | `/prospect-lists/:id` | 🔒 | Get list detail with paginated lightweight prospect summaries. Query: `?page=&limit=` |
+| PATCH | `/prospect-lists/:id` | 🔒 | Rename list, update dynamic filters, or replace manual membership |
+| DELETE | `/prospect-lists/:id` | 🔒 | Soft archive a list |
+| POST | `/prospect-lists/:id/prospects` | 🔒 | Add prospects to a manual list. Body: `{ prospectIds: [] }` |
+| DELETE | `/prospect-lists/:id/prospects` | 🔒 | Remove prospects from a manual list. Body: `{ prospectIds: [] }` |
+
 ---
 
 ## Organization — `/api/organization`

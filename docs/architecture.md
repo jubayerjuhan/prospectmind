@@ -17,13 +17,13 @@
 │  ┌──────────────────────────────────────────────┐   │
 │  │              AI Pipeline Runner              │   │
 │  │  discovery → enrichment → classify →         │   │
-│  │  score → outreach (all via Gemini API)        │   │
+│  │  score → outreach (all via Groq API)          │   │
 │  └──────────────────────────────────────────────┘   │
 └────────┬──────────────────────────┬─────────────────┘
          │                          │
 ┌────────▼──────────┐    ┌──────────▼──────────┐
-│  MongoDB Atlas    │    │  Google Gemini API   │
-│  (Mongoose ODM)   │    │  gemini-2.0-flash    │
+│  MongoDB Atlas    │    │  Groq API            │
+│  (Mongoose ODM)   │    │  llama-3.3-70b       │
 └───────────────────┘    └─────────────────────┘
 ```
 
@@ -54,7 +54,8 @@ server/src/
 │   └── auth.js                  # protect(), requirePlan(), requireRole()
 └── services/
     ├── ai/
-    │   └── claudeClient.js      # askClaude() — Gemini wrapper, parses JSON response
+    │   ├── groqClient.js        # askGroq() — modular Groq wrapper, parses JSON response
+    │   └── claudeClient.js      # askClaude() — compatibility export over Groq
     ├── pipeline/
     │   ├── runner.js            # Orchestrates all 5 layers, updates DB at each step
     │   ├── discovery.js         # Layer 1: identity resolution
@@ -156,7 +157,9 @@ New tokens issued → retry original request transparently
 | `JWT_REFRESH_SECRET` | authController.js | ✅ |
 | `JWT_EXPIRES_IN` | authController.js | No (default 15m) |
 | `JWT_REFRESH_EXPIRES_IN` | authController.js | No (default 7d) |
-| `GEMINI_API_KEY` | services/ai/claudeClient.js | ✅ |
+| `GROQ_API_KEY` | services/ai/groqClient.js | ✅ |
+| `GROQ_MODEL` | services/ai/groqClient.js | No |
+| `GROQ_FALLBACK_MODELS` | services/ai/groqClient.js | No |
 | `STRIPE_SECRET_KEY` | services/stripe/stripeService.js | Billing only |
 | `STRIPE_WEBHOOK_SECRET` | routes/billing.js | Billing only |
 | `STRIPE_PRO_PRICE_ID` | services/stripe/stripeService.js | Billing only |

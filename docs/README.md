@@ -12,7 +12,7 @@ docs/
 ├── project-overview.md        ← Vision, problem, goals, differentiators
 ├── architecture.md            ← System design, file structure, data flow, env vars
 ├── features/
-│   ├── pipeline.md            ← AI pipeline (all 5 layers), Gemini integration
+│   ├── pipeline.md            ← AI pipeline (all 5 layers), Groq integration
 │   ├── auth.md                ← JWT auth, middleware, user roles
 │   ├── prospects.md           ← Prospect schema, lifecycle, API, CSV format
 │   ├── outreach.md            ← Message generation, human review, sending
