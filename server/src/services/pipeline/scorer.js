@@ -4,6 +4,7 @@
  */
 
 import { askClaude } from '../ai/claudeClient.js';
+import { buildProfileSnapshot, clipPromptText } from './profileSnapshot.js';
 
 const SYSTEM_PROMPT = `You are a precision scoring engine for a talent intelligence platform.
 Score prospects based on their fit, quality, and outreach potential.
@@ -18,41 +19,53 @@ const SCORE_LABELS = {
   irrelevant: 'not_relevant',
 };
 
-export const scoreProfile = async (prospect, enrichedProfile, classification) => {
-  const userPrompt = `Score this prospect's compatibility and outreach potential.
+export const scoreProfile = async (prospect, enrichedProfile, classification, campaignDescription = '') => {
+  const profileSnapshot = buildProfileSnapshot(enrichedProfile);
+  let campaignPrompt = '';
+  if (campaignDescription && campaignDescription.trim() !== '') {
+    campaignPrompt = `\n=== CAMPAIGN DESCRIPTION & OUTREACH GOALS ===
+The user running this pipeline has specified the following overarching goals and requirements for this campaign:
+"${clipPromptText(campaignDescription, 1200)}"
+
+You MUST dynamically evaluate this prospect's value toward achieving this specific campaign goal based on their assigned persona.
+- If the prospect is highly valuable for the campaign (as a talent, a client, a partner, an influencer, etc.), give a high compatibilityScore.
+- If the prospect is irrelevant to the campaign's goals, decrease the compatibilityScore accordingly (even down to 0).
+- In the "scoreReasoning" response field, EXPLICITLY state why they are a good or bad fit for this campaign based on their persona.
+==================================================\n`;
+  }
+
+  const userPrompt = `${campaignPrompt}Score this prospect's compatibility and outreach potential dynamically.
 
 Prospect: ${prospect.firstName} ${prospect.lastName || ''} @ ${prospect.company || 'Unknown'}
 Classification: ${JSON.stringify(classification)}
-Enriched Profile: ${JSON.stringify(enrichedProfile, null, 2)}
+Enriched Profile: ${JSON.stringify(profileSnapshot, null, 2)}
 
-Scoring criteria (weight each based on classification):
-FOR TALENT:
-- Web3 ecosystem depth (30%)
-- Technical quality & seniority (25%)
-- Open-source activity & contributions (20%)
-- Community presence & influence (15%)
-- Contactability / reachability (10%)
+INSTRUCTIONS FOR DYNAMIC SCORING:
+1. Analyze the prospect's Classification (e.g., Talent, Founder, Recruiter, Client, Influencer).
+2. Look at the Campaign Description (if provided).
+3. Based on their specific Persona AND the Campaign Goals, dynamically generate 3-5 scoring dimensions that make the most sense for evaluating them.
+   - For example, if they are a Talent, dimensions might be "Technical Seniority", "Web3 Experience", "Open Source Activity".
+   - If they are a Client/Founder, dimensions might be "Hiring Budget Potential", "Company Stage", "Decision Maker Authority".
+   - If they are a Recruiter, dimensions might be "Network Size", "Agency Alignment".
+4. Evaluate the prospect across these dynamically generated dimensions and compute a final compatibilityScore (0-100).
 
-FOR CLIENT:
-- Hiring urgency & activity (30%)
-- Web3 native alignment (25%)
-- Company stage & funding (20%)
-- Decision-maker authority (15%)
-- Tech stack relevance (10%)
+CRITICAL LABEL INSTRUCTIONS:
+- Assign the most appropriate \`scoreLabel\` from this exact list: ["strong_talent_match", "high_potential_client", "strategic_advisor", "influential_voice", "low_priority", "not_relevant"].
+- Make sure the label matches their persona (do not label a non-technical CEO as a "strong_talent_match").
 
 Return JSON:
 {
   "compatibilityScore": 0-100,
-  "scoreLabel": "strong_talent_match|high_potential_client|strategic_advisor|low_priority|not_relevant",
+  "scoreLabel": "strong_talent_match|high_potential_client|strategic_advisor|influential_voice|low_priority|not_relevant",
   "outreachPriority": "high|medium|low",
   "scoreBreakdown": {
-    "dimension1": { "score": 0-100, "weight": 0.30, "note": "..." },
-    "dimension2": { "score": 0-100, "weight": 0.25, "note": "..." }
+    "dynamicDimensionName1": { "score": 0-100, "weight": 0.40, "note": "..." },
+    "dynamicDimensionName2": { "score": 0-100, "weight": 0.30, "note": "..." }
   },
-  "scoreReasoning": "2–3 sentence explanation",
+  "scoreReasoning": "2–3 sentence explanation focusing on campaign fit and persona value",
   "bestContactChannel": "email|linkedin|x|telegram",
   "contactabilityNotes": "where are they most active/reachable"
 }`;
 
-  return askClaude({ systemPrompt: SYSTEM_PROMPT, userPrompt });
+  return askClaude({ systemPrompt: SYSTEM_PROMPT, userPrompt, maxTokens: 512 });
 };

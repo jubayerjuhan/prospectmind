@@ -1,7 +1,7 @@
 /**
  * Layer 1 — Identity Resolution
  * Uses Serper (Google Search API) to find real LinkedIn URLs.
- * Gemini is used only to VERIFY / pick the best match — not to guess.
+ * AI is used only to VERIFY / pick the best match — not to guess.
  *
  * Search strategy (tries progressively looser queries until URLs are found):
  *  1. "Full Name" site:linkedin.com/in  (most precise)
@@ -118,7 +118,7 @@ const findLinkedinUrl = async (fullName, company) => {
   return { urls: [], results: [] };
 };
 
-// ─── Gemini Verifier ─────────────────────────────────────────────────────────
+// ─── AI Verifier ─────────────────────────────────────────────────────────────
 
 const verifyWithAI = async (prospect, linkedinCandidates, githubCandidates, searchSnippets) => {
   const { firstName, lastName, company } = prospect;
@@ -227,7 +227,7 @@ export const resolveIdentity = async (prospect) => {
     };
   }
 
-  // ── Step 5: Multiple candidates → Gemini picks the best one ─────────────
+  // ── Step 5: Multiple candidates → AI picks the best one ─────────────────
   const verified = await verifyWithAI(prospect, linkedinCandidates, githubCandidates, allSnippets);
 
   return {

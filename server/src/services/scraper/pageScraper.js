@@ -44,7 +44,7 @@ const scrapeWithPuppeteer = async (url) => {
       ['script', 'style', 'nav', 'footer'].forEach(tag =>
         document.querySelectorAll(tag).forEach(el => el.remove())
       );
-      const text = document.body.innerText.slice(0, 6000);
+      const cleaned = document.body.innerText.replace(/\s+/g, ' ').slice(0, 1500);
 
       // Capture ALL external hrefs — footers often have GitHub/X/Telegram links
       const links = [...document.querySelectorAll('a[href]')]
@@ -83,7 +83,7 @@ const scrapeWithJina = (url) =>
           const xMatches = body.matchAll(/https?:\/\/(?:twitter|x)\.com\/[a-zA-Z0-9_]+/g);
           for (const m of xMatches) links.push(m[0]);
 
-          resolve({ text: body.slice(0, 6000).trim(), links: [...new Set(links)] });
+          resolve({ text: body.slice(0, 3000).trim(), links: [...new Set(links)] });
         });
       }
     );

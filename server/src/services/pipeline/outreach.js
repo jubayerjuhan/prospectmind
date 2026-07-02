@@ -85,7 +85,7 @@ Only include keys for available channels: ${availableChannels.join(', ')}`;
   const messages = await askClaude({
     systemPrompt: SYSTEM_PROMPT,
     userPrompt,
-    maxTokens: 3000,
+    maxTokens: 1200,
   });
 
   // Format into message documents

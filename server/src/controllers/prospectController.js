@@ -1,23 +1,17 @@
 import Prospect from '../models/Prospect.js';
 import { runPipeline } from '../services/pipeline/runner.js';
 import { sendOutreachEmail } from '../services/resend/emailService.js';
+import { generateOutreachMessages } from '../services/pipeline/outreach.js';
+import { buildProspectFilter } from '../utils/buildProspectFilter.js';
+
+const ACTIVE_PIPELINE_STATUSES = ['discovering', 'enriching', 'classifying', 'scoring', 'generating'];
 
 // GET /api/prospects
 export const getProspects = async (req, res) => {
   try {
     const { page = 1, limit = 20, status, priority, search } = req.query;
     const orgId = req.organization._id;
-
-    const filter = { organization: orgId, isArchived: false };
-    if (status) filter.pipelineStatus = status;
-    if (priority) filter.outreachPriority = priority;
-    if (search) {
-      filter.$or = [
-        { firstName: { $regex: search, $options: 'i' } },
-        { lastName: { $regex: search, $options: 'i' } },
-        { company: { $regex: search, $options: 'i' } },
-      ];
-    }
+    const filter = buildProspectFilter({ organizationId: orgId, status, priority, search });
 
     const [prospects, total] = await Promise.all([
       Prospect.find(filter)
@@ -124,10 +118,73 @@ export const retryPipeline = async (req, res) => {
     const prospect = await Prospect.findOne({ _id: req.params.id, organization: req.organization._id });
     if (!prospect) return res.status(404).json({ success: false, message: 'Prospect not found.' });
 
-    await Prospect.findByIdAndUpdate(prospect._id, { pipelineStatus: 'pending', pipelineError: null });
+    await Prospect.findByIdAndUpdate(prospect._id, {
+      pipelineStatus: 'pending',
+      pipelineError: null,
+      pipelinePaused: false,
+      pipelinePausedAt: null,
+    });
     runPipeline(prospect._id).catch(console.error);
 
     res.json({ success: true, message: 'Pipeline restarted.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// POST /api/prospects/:id/pause
+export const pausePipeline = async (req, res) => {
+  try {
+    const prospect = await Prospect.findOne({ _id: req.params.id, organization: req.organization._id });
+    if (!prospect) return res.status(404).json({ success: false, message: 'Prospect not found.' });
+
+    if (prospect.pipelineStatus === 'paused' || prospect.pipelinePaused) {
+      return res.status(400).json({ success: false, message: 'Pipeline is already paused.' });
+    }
+
+    if (!ACTIVE_PIPELINE_STATUSES.includes(prospect.pipelineStatus)) {
+      return res.status(400).json({ success: false, message: 'Only active pipeline runs can be paused.' });
+    }
+
+    await Prospect.findByIdAndUpdate(prospect._id, {
+      pipelinePaused: true,
+      pipelinePausedAt: new Date(),
+    });
+
+    res.json({
+      success: true,
+      message: 'Pause requested. The pipeline will pause after the current step finishes.',
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// POST /api/prospects/:id/resume
+export const resumePipeline = async (req, res) => {
+  try {
+    const prospect = await Prospect.findOne({ _id: req.params.id, organization: req.organization._id });
+    if (!prospect) return res.status(404).json({ success: false, message: 'Prospect not found.' });
+
+    if (!prospect.pipelinePaused && prospect.pipelineStatus !== 'paused') {
+      return res.status(400).json({ success: false, message: 'Pipeline is not paused.' });
+    }
+
+    await Prospect.findByIdAndUpdate(prospect._id, {
+      pipelinePaused: false,
+      pipelinePausedAt: null,
+      pipelineStatus: 'pending',
+      pipelineError: null,
+    });
+
+    runPipeline(prospect._id).catch((err) =>
+      console.error(`Pipeline error for ${prospect._id}:`, err.message)
+    );
+
+    res.json({
+      success: true,
+      message: 'Pipeline resumed from the start.',
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -206,5 +263,56 @@ export const archiveProspect = async (req, res) => {
     res.json({ success: true, message: 'Prospect archived.' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// POST /api/prospects/:id/generate-messages
+export const generateMessages = async (req, res) => {
+  try {
+    const prospect = await Prospect.findOne({ _id: req.params.id, organization: req.organization._id });
+    if (!prospect) return res.status(404).json({ success: false, message: 'Prospect not found.' });
+
+    if (prospect.messages && prospect.messages.length > 0) {
+      return res.status(400).json({ success: false, message: 'Messages already generated for this prospect.' });
+    }
+
+    if (prospect.pipelineStatus !== 'ready') {
+      return res.status(400).json({ success: false, message: 'Prospect pipeline must be ready before generating messages.' });
+    }
+
+    // Set status to generating
+    prospect.pipelineStatus = 'generating';
+    await prospect.save();
+
+    const messages = await generateOutreachMessages(
+      prospect,
+      prospect.enrichedProfile,
+      {
+        roleClassification: prospect.roleClassification,
+        primaryAngle: prospect.primaryAngle,
+        secondaryAngle: prospect.secondaryAngle
+      },
+      {
+        compatibilityScore: prospect.compatibilityScore,
+        scoreLabel: prospect.scoreLabel,
+        scoreReasoning: prospect.scoreReasoning,
+        outreachPriority: prospect.outreachPriority,
+        bestContactChannel: prospect.bestContactChannel
+      }
+    );
+
+    prospect.messages = messages;
+    prospect.pipelineStatus = 'ready';
+    await prospect.save();
+
+    res.json({ success: true, data: messages });
+  } catch (error) {
+    console.error('Generate messages error:', error);
+    // Reset status on error
+    await Prospect.findOneAndUpdate(
+      { _id: req.params.id },
+      { pipelineStatus: 'ready' }
+    );
+    res.status(500).json({ success: false, message: 'Failed to generate messages.' });
   }
 };

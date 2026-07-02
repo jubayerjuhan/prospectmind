@@ -5,22 +5,28 @@
  *  1. Scrape LinkedIn page via rotating Webshare proxies → real HTML content
  *  2. If LinkedIn scrape fails (login wall) → fallback to Serper snippets
  *  3. Fetch GitHub API → real repos/stars/languages
- *  4. Feed ALL real data to Gemini → structured profile (no guessing)
+ *  4. Feed ALL real data to AI → structured profile (no guessing)
  */
 
 import { askClaude } from '../ai/claudeClient.js';
 import { scrapeLinkedIn } from '../scraper/linkedinScraper.js';
 import { scrapePage } from '../scraper/pageScraper.js';
+import { clipPromptText } from './profileSnapshot.js';
 
-const SYSTEM_PROMPT = `You are a profile extraction engine.
-You are given REAL scraped content from a LinkedIn profile page and/or Google search snippets.
-Extract structured information ONLY from what is explicitly present in the data below.
-Do NOT use any knowledge from your training data about this specific person.
-Do NOT infer or assume anything not clearly stated in the data.
-If a field is not present, return null.
+const SYSTEM_PROMPT = `You are an expert B2B prospect research analyst.
+You are given scraped content from LinkedIn, GitHub, personal websites, and Google search snippets.
+Your job is to produce the richest possible structured profile by combining:
+1. The scraped data provided (treat as primary source)
+2. Your general knowledge about this person, their company, and their public work
+
+Prioritise scraped data when it contradicts your knowledge.
+Make reasonable inferences where data is sparse — clearly mark inferred fields with best-effort estimates.
 Always return valid JSON.`;
 
 const SERPER_API_URL = 'https://google.serper.dev/search';
+const LINKEDIN_SECTION_LIMIT = 4500;
+const EXTRA_PAGE_SECTION_LIMIT = 1400;
+const SNIPPET_SECTION_LIMIT = 240;
 
 // ─── Serper Fallback Search ───────────────────────────────────────────────────
 
@@ -65,6 +71,12 @@ const collectSnippets = async (fullName, company) => {
   return snippets;
 };
 
+const summarizeSnippets = (snippets = [], formatter) =>
+  snippets
+    .slice(0, 6)
+    .map((snippet) => formatter(snippet))
+    .join('\n\n');
+
 // ─── GitHub API ───────────────────────────────────────────────────────────────
 
 const fetchGitHubData = async (githubUrl) => {
@@ -78,7 +90,7 @@ const fetchGitHubData = async (githubUrl) => {
 
     const [userRes, reposRes] = await Promise.all([
       fetch(`https://api.github.com/users/${username}`, { headers }),
-      fetch(`https://api.github.com/users/${username}/repos?sort=updated&per_page=10`, { headers }),
+      fetch(`https://api.github.com/users/${username}/repos?sort=updated&per_page=30`, { headers }),
     ]);
 
     if (!userRes.ok) return null;
@@ -186,7 +198,7 @@ export const enrichProfile = async (prospect, discoveredIdentity) => {
       !url.includes('google.com') &&
       url.startsWith('http')
     )
-    .slice(0, 5); // up from 2 → scrape top 5 pages
+    .slice(0, 3); // up from 2 → scrape top 3 pages
 
   console.log(`[enrichment] Scraping ${scrapableUrls.length} extra pages:`, scrapableUrls);
   const extraPageTexts = await Promise.all(scrapableUrls.map((url) => scrapePage(url)));
@@ -260,25 +272,33 @@ export const enrichProfile = async (prospect, discoveredIdentity) => {
       const r = extraPageTexts[i];
       if (!r) return null;
       const text = typeof r === 'string' ? r : r.text;
-      return text ? `Source: ${url}\n${text}` : null;
+      return text ? `Source: ${url}\n${clipPromptText(text, EXTRA_PAGE_SECTION_LIMIT)}` : null;
     })
     .filter(Boolean)
     .join('\n\n---\n\n');
 
   // ── Step 3: Build prompt sections ─────────────────────────────────────────
   const linkedinSection = linkedinText
-    ? `=== LINKEDIN PROFILE (directly scraped — most reliable) ===\n${linkedinText}`
+    ? `=== LINKEDIN PROFILE (directly scraped — most reliable) ===\n${clipPromptText(linkedinText, LINKEDIN_SECTION_LIMIT)}`
     : `=== LINKEDIN SNIPPETS (Google indexed — LinkedIn scrape unavailable) ===
-${snippets.filter(s => s.source.includes('linkedin')).map(s => `Title: ${s.title}\nSnippet: ${s.snippet}`).join('\n\n')}`;
+${summarizeSnippets(
+  snippets.filter((s) => s.source.includes('linkedin')),
+  (s) => `Title: ${clipPromptText(s.title, 120)}\nSnippet: ${clipPromptText(s.snippet, SNIPPET_SECTION_LIMIT)}`
+)}`;
 
   const snippetSection = `=== OTHER SEARCH SNIPPETS ===
-${snippets.filter(s => !s.source.includes('linkedin')).map((s) => `Source: ${s.source}\nTitle: ${s.title}\nSnippet: ${s.snippet}`).join('\n\n')}`;
+${summarizeSnippets(
+  snippets.filter((s) => !s.source.includes('linkedin')),
+  (s) =>
+    `Source: ${s.source}\nTitle: ${clipPromptText(s.title, 120)}\nSnippet: ${clipPromptText(s.snippet, SNIPPET_SECTION_LIMIT)}`
+)}`;
 
   const extraSection = extraContent
     ? `=== ADDITIONAL SCRAPED PAGES ===\n${extraContent}`
     : '';
 
-  const userPrompt = `Extract a structured profile for this person using ONLY the data below.
+  const userPrompt = `Build a comprehensive structured profile for this person.
+Use the scraped data as primary source. Fill in gaps using your general knowledge where the scraped data is sparse.
 
 === PERSON ===
 Name: ${fullName}
@@ -293,10 +313,11 @@ ${extraSection}
 === GITHUB DATA (from GitHub API) ===
 ${githubData ? JSON.stringify(githubData, null, 2) : 'No GitHub profile found.'}
 
-=== STRICT RULES ===
-- Extract ONLY what is explicitly written in the data above
-- Do NOT use any outside knowledge about this person
-- If a field is not in the data, return null
+=== INSTRUCTIONS ===
+- Use scraped data as the primary source of truth
+- Fill gaps with your general knowledge about this person and their public work
+- Produce the richest possible profile — don't leave arrays empty if you know the information
+- Estimate yearsOfExperience and seniority from available context
 
 ⚠️ CRITICAL — EDUCATION vs COMPANY:
 LinkedIn snippets often list education institutions right after work companies with no separator.
@@ -349,7 +370,7 @@ Return JSON:
   }
 }`;
 
-  const enriched = await askClaude({ systemPrompt: SYSTEM_PROMPT, userPrompt, maxTokens: 2048 });
+  const enriched = await askClaude({ systemPrompt: SYSTEM_PROMPT, userPrompt, maxTokens: 1500 });
 
   return {
     ...discoveredIdentity,

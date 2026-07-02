@@ -4,6 +4,7 @@
  */
 
 import { askClaude } from '../ai/claudeClient.js';
+import { buildProfileSnapshot } from './profileSnapshot.js';
 
 const SYSTEM_PROMPT = `You are a senior talent intelligence analyst specializing in Web3 and tech ecosystems.
 Your job is to classify prospects into roles and determine the most effective outreach angle.
@@ -11,6 +12,7 @@ Be precise — wrong classification leads to wrong outreach and destroys trust.
 Always return valid JSON.`;
 
 export const classifyProfile = async (prospect, enrichedProfile) => {
+  const profileSnapshot = buildProfileSnapshot(enrichedProfile, { includeContact: false });
   const userPrompt = `Classify this prospect based on their enriched profile.
 
 Prospect:
@@ -19,7 +21,7 @@ Prospect:
 - Original type hint: ${prospect.typeHint}
 
 Enriched Profile:
-${JSON.stringify(enrichedProfile, null, 2)}
+${JSON.stringify(profileSnapshot, null, 2)}
 
 Classification categories:
 - talent: Developer, engineer, builder, contributor
@@ -46,5 +48,5 @@ Return JSON:
   "keySignals": ["signal1", "signal2", "signal3"]
 }`;
 
-  return askClaude({ systemPrompt: SYSTEM_PROMPT, userPrompt });
+  return askClaude({ systemPrompt: SYSTEM_PROMPT, userPrompt, maxTokens: 512 });
 };

@@ -29,6 +29,8 @@ const organizationSchema = new mongoose.Schema(
       defaultEcosystem: { type: String, default: 'web3' }, // web3 | web2 | any
       autoEnrich: { type: Boolean, default: false },
       outreachReviewRequired: { type: Boolean, default: true },
+      icpRules: { type: String, default: '' }, // Deprecated, use campaignDescription
+      campaignDescription: { type: String, default: '' },
     },
   },
   { timestamps: true }

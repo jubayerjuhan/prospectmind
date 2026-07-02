@@ -111,12 +111,14 @@ const prospectSchema = new mongoose.Schema(
     // Pipeline status
     pipelineStatus: {
       type: String,
-      enum: ['pending', 'discovering', 'enriching', 'classifying', 'scoring', 'generating', 'ready', 'failed'],
+      enum: ['pending', 'discovering', 'enriching', 'classifying', 'scoring', 'generating', 'paused', 'ready', 'failed'],
       default: 'pending',
       index: true,
     },
     pipelineError: String,
     pipelineJobId: String,
+    pipelinePaused: { type: Boolean, default: false },
+    pipelinePausedAt: Date,
 
     // Enriched data (populated by pipeline)
     enrichedProfile: enrichedProfileSchema,

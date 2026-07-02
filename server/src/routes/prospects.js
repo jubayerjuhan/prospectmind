@@ -6,9 +6,12 @@ import {
   createProspect,
   bulkCreateProspects,
   retryPipeline,
+  pausePipeline,
+  resumePipeline,
   approveMessage,
   sendMessage,
   archiveProspect,
+  generateMessages,
 } from '../controllers/prospectController.js';
 
 const router = Router();
@@ -22,7 +25,10 @@ router.post('/bulk', bulkCreateProspects);
 router.get('/:id', getProspect);
 router.delete('/:id', archiveProspect);
 router.post('/:id/retry', retryPipeline);
+router.post('/:id/pause', pausePipeline);
+router.post('/:id/resume', resumePipeline);
 router.patch('/:id/messages/:messageId/approve', approveMessage);
 router.post('/:id/messages/:messageId/send', sendMessage);
+router.post('/:id/generate-messages', generateMessages);
 
 export default router;

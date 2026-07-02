@@ -82,8 +82,8 @@ const loginToLinkedIn = async (page) => {
   await page.goto('https://www.linkedin.com/login', { waitUntil: 'networkidle2', timeout: 30000 });
   await new Promise(r => setTimeout(r, 2000)); // let form fully render
 
-  // ── Collect all input metadata and hand it to Gemini ────────────────────
-  // Sending structured input properties (not raw HTML) gives Gemini clean
+  // ── Collect all input metadata and hand it to AI ─────────────────────────
+  // Sending structured input properties (not raw HTML) gives the model clean
   // signal to identify email/password fields in any language or DOM structure.
   const inputMeta = await page.evaluate(() =>
     [...document.querySelectorAll('input')].map((el, i) => ({
@@ -99,12 +99,12 @@ const loginToLinkedIn = async (page) => {
     }))
   );
 
-  // ── Try Gemini first; fall back to known LinkedIn selectors ─────────────
+  // ── Try AI first; fall back to known LinkedIn selectors ─────────────────
   let emailSel = null;
   let passSel  = null;
 
   try {
-    console.log('[linkedin] Asking Gemini to identify login fields from', inputMeta.length, 'inputs...');
+    console.log('[linkedin] Asking AI to identify login fields from', inputMeta.length, 'inputs...');
     const aiResult = await askClaude({
       systemPrompt:
         'You are a login form field identifier. Given a JSON list of HTML input elements with their attributes, ' +
@@ -128,11 +128,11 @@ const loginToLinkedIn = async (page) => {
         passSel  = passEl.name          ? `input[name="${passEl.name}"]`
                  : passEl.autocomplete  ? `input[autocomplete="${passEl.autocomplete}"]`
                  : `input[type="${passEl.type}"]`;
-        console.log('[linkedin] Gemini identified — email index:', aiResult.emailIndex, '| password index:', aiResult.passwordIndex);
+        console.log('[linkedin] AI identified — email index:', aiResult.emailIndex, '| password index:', aiResult.passwordIndex);
       }
     }
   } catch (e) {
-    console.warn('[linkedin] Gemini field detection failed, using fallback selectors:', e.message.slice(0, 80));
+    console.warn('[linkedin] AI field detection failed, using fallback selectors:', e.message.slice(0, 80));
   }
 
   // Fallback: LinkedIn's form has used these name attributes for years
@@ -147,7 +147,7 @@ const loginToLinkedIn = async (page) => {
   }
 
   if (!emailSel || !passSel) {
-    console.warn('[linkedin] Could not locate login fields via Gemini or fallback selectors');
+    console.warn('[linkedin] Could not locate login fields via AI or fallback selectors');
     return false;
   }
 
@@ -340,7 +340,7 @@ export const scrapeLinkedIn = async (linkedinUrl) => {
       .filter(l => l.length > 2)
       .join('\n')
       .replace(/\n{3,}/g, '\n\n')
-      .slice(0, 12000);
+      .slice(0, 5000);
 
     console.log(`[linkedin] ✅ Scraped ${cleaned.length} chars`);
     return cleaned;
