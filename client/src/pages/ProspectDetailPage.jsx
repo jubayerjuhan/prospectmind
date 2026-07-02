@@ -6,8 +6,10 @@ import toast from 'react-hot-toast';
 import {
   ArrowLeft, Code2, Link2, X as XIcon, Send, CheckCircle,
   Edit3, ExternalLink, MapPin, Briefcase, Activity, GraduationCap, RefreshCw,
-  AlertTriangle,
+  AlertTriangle, Target, Zap, Star, Sparkles, Pause, Play
 } from 'lucide-react';
+
+const ACTIVE_PIPELINE_STATUSES = ['discovering', 'enriching', 'classifying', 'scoring', 'generating'];
 
 /* ── Skeleton helpers ─────────────────────────────────────────────── */
 const Sk = ({ className }) => (
@@ -61,6 +63,209 @@ const Badge = ({ children, color = 'indigo' }) => {
   );
 };
 
+function calculateRadarMetrics(ep, uniqueSkills) {
+  const skills = (uniqueSkills || []).map(s => s.toLowerCase());
+
+  // 1. Web3 Native (based on Web3 native score and skills)
+  const web3Skills = ['solidity', 'rust', 'smart contract', 'solana', 'ethereum', 'web3', 'hardhat', 'foundry', 'truffle', 'ethers', 'web3.js', 'defi', 'cryptography', 'blockchain', 'ethers.js'];
+  const web3SkillCount = skills.filter(s => web3Skills.some(w => s.includes(w))).length;
+  const web3Score = Math.max(
+    ep.web3NativeScore || 0,
+    Math.min(100, (web3SkillCount * 15) + (ep.web3NativeScore ? 20 : 0))
+  );
+
+  // 2. Systems & Backend
+  const backendSkills = ['node', 'express', 'nest', 'go', 'golang', 'rust', 'python', 'django', 'flask', 'fastapi', 'postgres', 'postgresql', 'mongodb', 'mysql', 'redis', 'docker', 'kubernetes', 'aws', 'backend', 'graphql'];
+  const backendSkillCount = skills.filter(s => backendSkills.some(b => s.includes(b))).length;
+  const backendScore = Math.min(100, (backendSkillCount * 15) + (skills.includes('node.js') || skills.includes('node') ? 20 : 0));
+
+  // 3. Frontend & UI
+  const frontendSkills = ['react', 'vue', 'angular', 'svelte', 'next.js', 'nextjs', 'tailwind', 'tailwindcss', 'css', 'html', 'javascript', 'typescript', 'frontend', 'ui', 'ux', 'sass'];
+  const frontendSkillCount = skills.filter(s => frontendSkills.some(f => s.includes(f))).length;
+  const frontendScore = Math.min(100, (frontendSkillCount * 15) + (skills.includes('react') || skills.includes('reactjs') ? 20 : 0));
+
+  // 4. OSS Impact
+  const stars = ep.githubStats?.stars || 0;
+  const repos = ep.githubStats?.repos || 0;
+  const ossScore = Math.min(100, (stars * 8) + (repos * 2) + (stars > 0 ? 25 : 0));
+
+  // 5. Ecosystem Breadth
+  const uniqueCount = skills.length;
+  const breadthScore = Math.min(100, (uniqueCount * 6));
+
+  return [
+    { label: 'Web3 & Contracts', value: Math.max(15, web3Score) },
+    { label: 'Systems & Backend', value: Math.max(15, backendScore) },
+    { label: 'Frontend & UI', value: Math.max(15, frontendScore) },
+    { label: 'OSS Impact', value: Math.max(15, ossScore) },
+    { label: 'Ecosystem Breadth', value: Math.max(15, breadthScore) }
+  ];
+}
+
+function SkillRadarChart({ ep, uniqueSkills }) {
+  const metrics = calculateRadarMetrics(ep, uniqueSkills);
+  
+  const width = 240;
+  const height = 240;
+  const cx = width / 2;
+  const cy = height / 2;
+  const r = 80;
+
+  // Angles for each vertex (5 vertices)
+  const getCoordinates = (index, value) => {
+    const angle = -Math.PI / 2 + (index * 2 * Math.PI) / 5;
+    const factor = value / 100;
+    const x = cx + r * factor * Math.cos(angle);
+    const y = cy + r * factor * Math.sin(angle);
+    return { x, y };
+  };
+
+  // Generate grid pentagons (for 25%, 50%, 75%, 100%)
+  const gridLevels = [25, 50, 75, 100];
+  const gridPolygons = gridLevels.map(level => {
+    return Array.from({ length: 5 }).map((_, i) => {
+      const { x, y } = getCoordinates(i, level);
+      return `${x},${y}`;
+    }).join(' ');
+  });
+
+  // Candidate path
+  const candidatePoints = metrics.map((m, i) => {
+    const { x, y } = getCoordinates(i, m.value);
+    return { x, y, label: m.label, value: m.value };
+  });
+  const candidatePath = candidatePoints.map(p => `${p.x},${p.y}`).join(' ');
+
+  // Labels coordinates
+  const labelPositions = Array.from({ length: 5 }).map((_, i) => {
+    // Offset labels slightly outward
+    const angle = -Math.PI / 2 + (i * 2 * Math.PI) / 5;
+    const textDistance = r + 24;
+    const x = cx + textDistance * Math.cos(angle);
+    const y = cy + textDistance * Math.sin(angle);
+    
+    // Adjust text anchor
+    let textAnchor = 'middle';
+    if (Math.cos(angle) > 0.1) textAnchor = 'start';
+    if (Math.cos(angle) < -0.1) textAnchor = 'end';
+    
+    return { x, y, textAnchor, label: metrics[i].label, value: metrics[i].value };
+  });
+
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col md:flex-row items-center gap-8 relative overflow-hidden group">
+      <div className="absolute -left-12 -bottom-12 w-24 h-24 bg-indigo-500/5 rounded-full blur-2xl group-hover:bg-indigo-500/10 transition-all"></div>
+      <div className="relative w-[240px] h-[240px] shrink-0 flex items-center justify-center">
+        <svg width={width} height={height} className="overflow-visible">
+          {/* Grid lines */}
+          {gridPolygons.map((points, idx) => (
+            <polygon
+              key={idx}
+              points={points}
+              fill="none"
+              stroke="#334155"
+              strokeWidth="0.8"
+              strokeDasharray={idx < 3 ? "2,2" : undefined}
+            />
+          ))}
+
+          {/* Radial axis lines */}
+          {Array.from({ length: 5 }).map((_, i) => {
+            const outer = getCoordinates(i, 100);
+            return (
+              <line
+                key={i}
+                x1={cx}
+                y1={cy}
+                x2={outer.x}
+                y2={outer.y}
+                stroke="#1e293b"
+                strokeWidth="1"
+              />
+            );
+          })}
+
+          {/* Candidate Polygon fill */}
+          <polygon
+            points={candidatePath}
+            fill="url(#radarGradient)"
+            stroke="#6366f1"
+            strokeWidth="1.5"
+          />
+
+          {/* Define Gradient */}
+          <defs>
+            <radialGradient id="radarGradient" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="rgba(99, 102, 241, 0.1)" />
+              <stop offset="100%" stopColor="rgba(99, 102, 241, 0.35)" />
+            </radialGradient>
+          </defs>
+
+          {/* Vertex dots */}
+          {candidatePoints.map((p, idx) => (
+            <circle
+              key={idx}
+              cx={p.x}
+              cy={p.y}
+              r="3.5"
+              fill="#818cf8"
+              stroke="#0f172a"
+              strokeWidth="1.5"
+            />
+          ))}
+
+          {/* Axis Labels */}
+          {labelPositions.map((lp, idx) => (
+            <g key={idx}>
+              <text
+                x={lp.x}
+                y={lp.y - 4}
+                textAnchor={lp.textAnchor}
+                fill="#94a3b8"
+                fontSize="9"
+                fontWeight="600"
+                className="select-none uppercase tracking-wider font-sans"
+              >
+                {lp.label.split(' & ')[0]}
+              </text>
+              <text
+                x={lp.x}
+                y={lp.y + 6}
+                textAnchor={lp.textAnchor}
+                fill="#818cf8"
+                fontSize="9"
+                fontWeight="700"
+                className="select-none font-sans"
+              >
+                {lp.value}%
+              </text>
+            </g>
+          ))}
+        </svg>
+      </div>
+
+      <div className="flex-1 space-y-3 w-full relative z-10">
+        <div>
+          <h4 className="text-white font-semibold text-sm uppercase tracking-wider">
+            Competency Radar
+          </h4>
+          <p className="text-slate-400 text-xs mt-1 leading-relaxed">
+            Visual index of tech capabilities parsed from public profiles, OSS contributions, and code repositories.
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-3 pt-2">
+          {metrics.map((m, idx) => (
+            <div key={idx} className="bg-slate-950/40 border border-slate-800/80 rounded-lg p-2.5 flex flex-col justify-center">
+              <span className="text-[9px] text-slate-500 uppercase font-bold tracking-wider mb-1 truncate">{m.label}</span>
+              <span className="text-sm font-extrabold text-white">{m.value}%</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ProspectDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -72,7 +277,7 @@ export default function ProspectDetailPage() {
     queryKey: ['prospect', id],
     queryFn: () => api.get(`/prospects/${id}`).then((r) => r.data.data),
     refetchInterval: (d) =>
-      !d || ['pending','discovering','enriching','classifying','scoring','generating'].includes(d.pipelineStatus)
+      !d || ['pending', ...ACTIVE_PIPELINE_STATUSES].includes(d.pipelineStatus)
         ? 5000 : false,
   });
 
@@ -104,12 +309,47 @@ export default function ProspectDetailPage() {
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to send email'),
   });
 
+  const generateMutation = useMutation({
+    mutationFn: () => api.post(`/prospects/${id}/generate-messages`),
+    onSuccess: () => {
+      toast.success('Outreach messages generated!');
+      queryClient.invalidateQueries(['prospect', id]);
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to generate messages'),
+  });
+
+  const pauseMutation = useMutation({
+    mutationFn: () => api.post(`/prospects/${id}/pause`),
+    onSuccess: (response) => {
+      toast.success(response.data.message || 'Pause requested');
+      queryClient.invalidateQueries({ queryKey: ['prospect', id] });
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to pause pipeline'),
+  });
+
+  const resumeMutation = useMutation({
+    mutationFn: () => api.post(`/prospects/${id}/resume`),
+    onSuccess: (response) => {
+      toast.success(response.data.message || 'Pipeline resumed');
+      queryClient.invalidateQueries({ queryKey: ['prospect', id] });
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to resume pipeline'),
+  });
+
   if (isLoading) return <DetailSkeleton />;
   if (!data)     return <div className="text-slate-400 py-20 text-center">Prospect not found.</div>;
 
   const p  = data;
   const ep = p.enrichedProfile || {};
-  const isProcessing = !['ready','failed','pending'].includes(p.pipelineStatus);
+  const isProcessing = ACTIVE_PIPELINE_STATUSES.includes(p.pipelineStatus);
+  const isTalent = p.roleClassification?.some(r => r.toLowerCase() === 'talent');
+  const allSkillsSet = new Set([
+    ...(ep.programmingLanguages || []),
+    ...(ep.frameworks || []),
+    ...(ep.blockchainEcosystems || []),
+    ...(ep.experience?.flatMap(ex => ex.skills || []) || [])
+  ]);
+  const uniqueSkills = Array.from(allSkillsSet).filter(Boolean);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -139,6 +379,28 @@ export default function ProspectDetailPage() {
           <RefreshCw size={14} className={rerunMutation.isPending || isProcessing ? 'animate-spin' : ''} />
           Re-run
         </button>
+        {isProcessing && (
+          <button
+            onClick={() => pauseMutation.mutate()}
+            disabled={pauseMutation.isPending}
+            className="flex items-center gap-2 px-3 py-2 bg-amber-900/40 hover:bg-amber-800/40 disabled:opacity-40 disabled:cursor-not-allowed text-amber-200 rounded-lg text-sm transition"
+            title="Pause after the current step"
+          >
+            <Pause size={14} />
+            Pause
+          </button>
+        )}
+        {p.pipelineStatus === 'paused' && (
+          <button
+            onClick={() => resumeMutation.mutate()}
+            disabled={resumeMutation.isPending}
+            className="flex items-center gap-2 px-3 py-2 bg-emerald-900/40 hover:bg-emerald-800/40 disabled:opacity-40 disabled:cursor-not-allowed text-emerald-200 rounded-lg text-sm transition"
+            title="Resume enrichment"
+          >
+            <Play size={14} />
+            Resume
+          </button>
+        )}
         {p.compatibilityScore != null && (
           <div className="flex flex-col items-center gap-1">
             <div className="bg-indigo-900/50 border border-indigo-800 rounded-xl px-4 py-2 text-center">
@@ -146,8 +408,8 @@ export default function ProspectDetailPage() {
               <div className="text-indigo-500 text-xs">/ 100</div>
             </div>
             {p.scoreLabel && (
-              <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-indigo-900/40 text-indigo-300 border border-indigo-800 capitalize">
-                {p.scoreLabel}
+              <span className="text-[11px] mt-1 px-3 py-1 rounded-full font-bold bg-indigo-950/40 text-indigo-200 border border-indigo-500/50 shadow-[0_0_12px_rgba(99,102,241,0.4)] capitalize tracking-wide">
+                {p.scoreLabel.replace(/_/g, ' ')}
               </span>
             )}
           </div>
@@ -161,13 +423,43 @@ export default function ProspectDetailPage() {
           <span className="text-indigo-300 text-sm capitalize">Pipeline running: {p.pipelineStatus}…</span>
         </div>
       )}
+      {p.pipelineStatus === 'paused' && (
+        <div className="bg-amber-950/50 border border-amber-800 rounded-xl p-4 flex items-start gap-3">
+          <Pause size={16} className="text-amber-300 mt-0.5 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-amber-200 text-sm font-medium">Pipeline paused</p>
+            <p className="text-amber-300/80 text-xs mt-0.5">
+              Resume will restart the enrichment pipeline from the beginning for this prospect.
+            </p>
+          </div>
+          <button
+            onClick={() => resumeMutation.mutate()}
+            disabled={resumeMutation.isPending}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-800/50 hover:bg-amber-700/50 disabled:opacity-40 text-amber-100 rounded-lg text-xs transition shrink-0"
+          >
+            <Play size={12} />
+            Resume
+          </button>
+        </div>
+      )}
       {p.pipelineStatus === 'failed' && (
         <div className="bg-red-950/50 border border-red-800 rounded-xl p-4 flex items-start gap-3">
           <AlertTriangle size={16} className="text-red-400 mt-0.5 shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="text-red-300 text-sm font-medium">Pipeline failed</p>
             {p.pipelineError && (
-              <p className="text-red-400/70 text-xs mt-0.5 break-words">{p.pipelineError}</p>
+              <p className="text-red-400/70 text-xs mt-0.5 break-words">
+                {(() => {
+                  const err = p.pipelineError;
+                  if (err.includes('413') || err.toLowerCase().includes('too large')) {
+                    return "This prospect's profile contains too much data to process at once under your current AI limits. Please upgrade your tier or try again later.";
+                  }
+                  if (err.includes('429')) {
+                    return "Our AI providers are currently experiencing high traffic. Please wait a moment and try again.";
+                  }
+                  return err;
+                })()}
+              </p>
             )}
           </div>
           <button
@@ -186,14 +478,110 @@ export default function ProspectDetailPage() {
         {/* ── LEFT COLUMN ──────────────────────────────────────────────── */}
         <div className="lg:col-span-2 space-y-4">
 
-          {/* Classification */}
+          {/* ── Quick Analytics ───────────────────────────────────────────── */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-2">
+            {/* Compatibility */}
+            {p.compatibilityScore != null && (
+              <div className="bg-gradient-to-br from-indigo-900/40 to-slate-900 border border-indigo-800/50 rounded-xl p-4 flex flex-col justify-between relative overflow-hidden group">
+                <div className="absolute -right-4 -top-4 w-16 h-16 bg-indigo-500/10 rounded-full blur-xl group-hover:bg-indigo-500/20 transition-all"></div>
+                <div className="flex items-center gap-2 text-indigo-400 mb-2">
+                  <Target size={15} />
+                  <span className="text-xs font-semibold uppercase tracking-wider">Match</span>
+                </div>
+                <div className="flex items-end gap-1.5">
+                  <span className="text-3xl font-bold text-white leading-none">{p.compatibilityScore}</span>
+                  <span className="text-indigo-500 text-xs mb-0.5 font-medium">/100</span>
+                </div>
+                {p.scoreLabel && <p className="text-indigo-300/80 text-[11px] mt-2 capitalize truncate">{p.scoreLabel.replace(/_/g, ' ')}</p>}
+              </div>
+            )}
+
+            {/* Experience */}
+            {ep.yearsOfExperience != null && (
+              <div className="bg-gradient-to-br from-blue-900/30 to-slate-900 border border-blue-800/40 rounded-xl p-4 flex flex-col justify-between relative overflow-hidden group">
+                <div className="absolute -right-4 -top-4 w-16 h-16 bg-blue-500/10 rounded-full blur-xl group-hover:bg-blue-500/20 transition-all"></div>
+                <div className="flex items-center gap-2 text-blue-400 mb-2">
+                  <Briefcase size={15} />
+                  <span className="text-xs font-semibold uppercase tracking-wider">Experience</span>
+                </div>
+                <div className="flex items-end gap-1.5">
+                  <span className="text-3xl font-bold text-white leading-none">{ep.yearsOfExperience}</span>
+                  <span className="text-slate-500 text-xs mb-0.5 font-medium">yrs</span>
+                </div>
+                {ep.seniority && <p className="text-slate-400 text-[11px] mt-2 capitalize truncate">{ep.seniority} Level</p>}
+              </div>
+            )}
+
+            {/* Web3 Native */}
+            {ep.web3NativeScore != null && (
+              <div className="bg-gradient-to-br from-purple-900/30 to-slate-900 border border-purple-800/40 rounded-xl p-4 flex flex-col justify-between relative overflow-hidden group">
+                <div className="absolute -right-4 -top-4 w-16 h-16 bg-purple-500/10 rounded-full blur-xl group-hover:bg-purple-500/20 transition-all"></div>
+                <div className="flex items-center gap-2 text-purple-400 mb-2">
+                  <Zap size={15} />
+                  <span className="text-xs font-semibold uppercase tracking-wider">Web3 Native</span>
+                </div>
+                <div className="flex items-end gap-1.5">
+                  <span className="text-3xl font-bold text-white leading-none">{ep.web3NativeScore}</span>
+                  <span className="text-purple-500/70 text-xs mb-0.5 font-medium">/100</span>
+                </div>
+                <p className="text-purple-400/70 text-[11px] mt-2 truncate">Ecosystem Knowledge</p>
+              </div>
+            )}
+
+            {/* GitHub Impact */}
+            {ep.githubStats != null && (ep.githubStats.stars != null || ep.githubStats.repos != null) && (
+              <div className="bg-gradient-to-br from-emerald-900/30 to-slate-900 border border-emerald-800/40 rounded-xl p-4 flex flex-col justify-between relative overflow-hidden group">
+                <div className="absolute -right-4 -top-4 w-16 h-16 bg-emerald-500/10 rounded-full blur-xl group-hover:bg-emerald-500/20 transition-all"></div>
+                <div className="flex items-center gap-2 text-emerald-400 mb-2">
+                  <Star size={15} />
+                  <span className="text-xs font-semibold uppercase tracking-wider">OSS Impact</span>
+                </div>
+                <div className="flex items-end gap-1.5">
+                  <span className="text-3xl font-bold text-white leading-none">{ep.githubStats.stars || 0}</span>
+                  <span className="text-emerald-500/70 text-xs mb-0.5 font-medium">stars</span>
+                </div>
+                <p className="text-emerald-400/70 text-[11px] mt-2 truncate">{ep.githubStats.repos || 0} public repos</p>
+              </div>
+            )}
+          </div>
+
+          {/* Skill Radar Chart */}
+          {p.pipelineStatus === 'ready' && (
+            <SkillRadarChart ep={ep} uniqueSkills={uniqueSkills} />
+          )}
+
+          {/* Personas */}
           {p.roleClassification?.length > 0 && (
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-              <h3 className="text-white font-semibold mb-3">Classification</h3>
+              <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
+                <Sparkles size={16} className="text-indigo-400" /> Personas
+              </h3>
               <div className="flex flex-wrap gap-2 mb-3">
                 {p.roleClassification.map((r) => <Badge key={r}>{r}</Badge>)}
               </div>
               {p.scoreReasoning && <p className="text-slate-400 text-sm">{p.scoreReasoning}</p>}
+            </div>
+          )}
+
+          {/* Core Skills (Talent Only) */}
+          {isTalent && uniqueSkills.length > 0 && (
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+              <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+                <Code2 size={16} className="text-indigo-400" /> Core Skills
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {uniqueSkills.slice(0, 15).map(skill => (
+                  <span key={skill} className="flex items-center gap-1.5 bg-slate-800/80 border border-slate-700/80 px-3 py-1.5 rounded-lg text-sm text-slate-300 font-medium">
+                     <CheckCircle size={14} className="text-emerald-500/80" />
+                     {skill}
+                  </span>
+                ))}
+                {uniqueSkills.length > 15 && (
+                  <span className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-500 font-medium">
+                    +{uniqueSkills.length - 15} more
+                  </span>
+                )}
+              </div>
             </div>
           )}
 
@@ -314,9 +702,12 @@ export default function ProspectDetailPage() {
           )}
 
           {/* Outreach Messages */}
-          {p.messages?.length > 0 && (
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-              <h3 className="text-white font-semibold mb-4">Outreach Messages</h3>
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+            <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+               Outreach Messages
+            </h3>
+            
+            {p.messages?.length > 0 ? (
               <div className="space-y-4">
                 {p.messages.map((msg) => (
                   <div key={msg._id} className="border border-slate-800 rounded-lg p-4">
@@ -413,8 +804,20 @@ export default function ProspectDetailPage() {
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+            ) : (
+              <div className="text-center py-6 border border-dashed border-slate-800 rounded-xl">
+                <p className="text-slate-400 text-sm mb-4">No outreach messages generated yet.</p>
+                <button
+                  onClick={() => generateMutation.mutate()}
+                  disabled={generateMutation.isPending || isProcessing}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition"
+                >
+                  <Sparkles size={16} className={generateMutation.isPending ? 'animate-pulse' : ''} />
+                  {generateMutation.isPending ? 'Generating...' : 'Generate Messages'}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* ── RIGHT COLUMN ─────────────────────────────────────────────── */}

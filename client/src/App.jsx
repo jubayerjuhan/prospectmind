@@ -10,8 +10,10 @@ import ResetPasswordPage from './pages/ResetPasswordPage';
 import VerifyEmailPage from './pages/VerifyEmailPage';
 import DashboardPage from './pages/DashboardPage';
 import ProspectsPage from './pages/ProspectsPage';
+import CampaignsPage from './pages/CampaignsPage';
 import ProspectDetailPage from './pages/ProspectDetailPage';
 import BillingPage from './pages/BillingPage';
+import SettingsPage from './pages/SettingsPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -36,9 +38,10 @@ export default function App() {
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<DashboardPage />} />
             <Route path="prospects" element={<ProspectsPage />} />
+            <Route path="campaigns" element={<CampaignsPage />} />
             <Route path="prospects/:id" element={<ProspectDetailPage />} />
             <Route path="billing" element={<BillingPage />} />
-            <Route path="settings" element={<div className="text-white p-8">Settings coming soon</div>} />
+            <Route path="settings" element={<SettingsPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

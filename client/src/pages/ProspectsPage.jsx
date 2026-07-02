@@ -16,10 +16,11 @@ const STATUS_COLOR = {
   classifying: 'bg-yellow-900/50 text-yellow-400',
   scoring: 'bg-orange-900/50 text-orange-400',
   generating: 'bg-indigo-900/50 text-indigo-400',
+  paused: 'bg-amber-900/50 text-amber-300',
 };
 
 const PRIORITY_COLOR = { high: 'text-green-400', medium: 'text-yellow-400', low: 'text-slate-500' };
-
+const PRIORITY_OPTIONS = ['high', 'medium', 'low'];
 const PAGE_SIZE = 20;
 
 export default function ProspectsPage() {
@@ -27,15 +28,16 @@ export default function ProspectsPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [priorityFilter, setPriorityFilter] = useState('');
   const [page, setPage] = useState(1);
   const [showAdd, setShowAdd] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['prospects', search, statusFilter, page],
+    queryKey: ['prospects', search, statusFilter, priorityFilter, page],
     queryFn: () =>
       api.get('/prospects', {
-        params: { search, status: statusFilter, limit: PAGE_SIZE, page },
+        params: { search, status: statusFilter, priority: priorityFilter, limit: PAGE_SIZE, page },
       }).then((r) => r.data),
     refetchInterval: 8000,
     keepPreviousData: true,
@@ -45,7 +47,7 @@ export default function ProspectsPage() {
     mutationFn: (id) => api.post(`/prospects/${id}/retry`),
     onSuccess: () => {
       toast.success('Pipeline restarted');
-      queryClient.invalidateQueries(['prospects']);
+      queryClient.invalidateQueries({ queryKey: ['prospects'] });
     },
   });
 
@@ -53,9 +55,20 @@ export default function ProspectsPage() {
   const total = data?.pagination?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  // Reset to page 1 whenever filters change
-  const handleSearch = (val) => { setSearch(val); setPage(1); };
-  const handleStatus = (val) => { setStatusFilter(val); setPage(1); };
+  const handleSearch = (val) => {
+    setSearch(val);
+    setPage(1);
+  };
+
+  const handleStatus = (val) => {
+    setStatusFilter(val);
+    setPage(1);
+  };
+
+  const handlePriority = (val) => {
+    setPriorityFilter(val);
+    setPage(1);
+  };
 
   return (
     <div className="space-y-6">
@@ -80,9 +93,8 @@ export default function ProspectsPage() {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-xs">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[240px] max-w-xs">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
           <input
             type="text"
@@ -98,27 +110,35 @@ export default function ProspectsPage() {
           onChange={(e) => handleStatus(e.target.value)}
         >
           <option value="">All statuses</option>
-          {Object.keys(STATUS_COLOR).map((s) => (
-            <option key={s} value={s}>{s}</option>
+          {Object.keys(STATUS_COLOR).map((status) => (
+            <option key={status} value={status}>{status}</option>
+          ))}
+        </select>
+        <select
+          className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-slate-300 text-sm focus:outline-none"
+          value={priorityFilter}
+          onChange={(e) => handlePriority(e.target.value)}
+        >
+          <option value="">All priorities</option>
+          {PRIORITY_OPTIONS.map((priority) => (
+            <option key={priority} value={priority}>{priority}</option>
           ))}
         </select>
       </div>
 
-      {/* Table */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-800">
-              {['Name', 'Company', 'Role', 'Score', 'Priority', 'Status', ''].map((h) => (
-                <th key={h} className="text-left text-slate-500 font-medium px-4 py-3 text-xs uppercase tracking-wide">
-                  {h}
+              {['Name', 'Company', 'Role', 'Score', 'Priority', 'Status', ''].map((heading) => (
+                <th key={heading} className="text-left text-slate-500 font-medium px-4 py-3 text-xs uppercase tracking-wide">
+                  {heading}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
             {isLoading ? (
-              /* Skeleton rows */
               Array.from({ length: 5 }).map((_, i) => (
                 <tr key={i}>
                   {Array.from({ length: 7 }).map((__, j) => (
@@ -131,42 +151,45 @@ export default function ProspectsPage() {
             ) : prospects.length === 0 ? (
               <tr>
                 <td colSpan={7} className="text-center text-slate-500 py-12">
-                  {search || statusFilter ? 'No prospects match your filters.' : 'No prospects yet — add your first one.'}
+                  {search || statusFilter || priorityFilter ? 'No prospects match your filters.' : 'No prospects yet — add your first one.'}
                 </td>
               </tr>
             ) : (
-              prospects.map((p) => (
+              prospects.map((prospect) => (
                 <tr
-                  key={p._id}
+                  key={prospect._id}
                   className="hover:bg-slate-800/50 cursor-pointer transition"
-                  onClick={() => navigate(`/prospects/${p._id}`)}
+                  onClick={() => navigate(`/prospects/${prospect._id}`)}
                 >
-                  <td className="px-4 py-3 text-white font-medium">{p.firstName} {p.lastName}</td>
-                  <td className="px-4 py-3 text-slate-400">{p.company || '—'}</td>
-                  <td className="px-4 py-3 text-slate-400 capitalize">{p.primaryAngle || p.typeHint || '—'}</td>
+                  <td className="px-4 py-3 text-white font-medium">{prospect.firstName} {prospect.lastName}</td>
+                  <td className="px-4 py-3 text-slate-400">{prospect.company || '—'}</td>
+                  <td className="px-4 py-3 text-slate-400 capitalize">{prospect.primaryAngle || prospect.typeHint || '—'}</td>
                   <td className="px-4 py-3">
-                    {p.compatibilityScore != null ? (
+                    {prospect.compatibilityScore != null ? (
                       <div className="flex flex-col">
-                        <span className="text-indigo-400 font-bold">{p.compatibilityScore}</span>
-                        {p.scoreLabel && (
-                          <span className="text-indigo-500/70 text-xs capitalize">{p.scoreLabel}</span>
+                        <span className="text-indigo-400 font-bold">{prospect.compatibilityScore}</span>
+                        {prospect.scoreLabel && (
+                          <span className="text-indigo-500/70 text-xs capitalize">{prospect.scoreLabel}</span>
                         )}
                       </div>
                     ) : '—'}
                   </td>
-                  <td className={`px-4 py-3 font-medium capitalize ${PRIORITY_COLOR[p.outreachPriority] || 'text-slate-500'}`}>
-                    {p.outreachPriority || '—'}
+                  <td className={`px-4 py-3 font-medium capitalize ${PRIORITY_COLOR[prospect.outreachPriority] || 'text-slate-500'}`}>
+                    {prospect.outreachPriority || '—'}
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLOR[p.pipelineStatus] || ''}`}>
-                      {p.pipelineStatus}
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLOR[prospect.pipelineStatus] || ''}`}>
+                      {prospect.pipelineStatus}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      {p.pipelineStatus === 'failed' && (
+                      {prospect.pipelineStatus === 'failed' && (
                         <button
-                          onClick={(e) => { e.stopPropagation(); retryMutation.mutate(p._id); }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            retryMutation.mutate(prospect._id);
+                          }}
                           className="text-slate-500 hover:text-yellow-400 transition"
                           title="Retry pipeline"
                         >
@@ -182,7 +205,6 @@ export default function ProspectsPage() {
           </tbody>
         </table>
 
-        {/* ── Pagination ────────────────────────────────────────────── */}
         {totalPages > 1 && (
           <div className="px-4 py-3 border-t border-slate-800 flex items-center justify-between">
             <span className="text-slate-500 text-xs">
@@ -190,13 +212,12 @@ export default function ProspectsPage() {
             </span>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
                 disabled={page === 1}
                 className="flex items-center gap-1 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-slate-300 rounded-lg text-xs transition"
               >
                 <ChevronLeft size={13} /> Prev
               </button>
-              {/* Page number pills — show up to 5 around current page */}
               {Array.from({ length: totalPages }, (_, i) => i + 1)
                 .filter((n) => n === 1 || n === totalPages || Math.abs(n - page) <= 1)
                 .reduce((acc, n, i, arr) => {
@@ -212,9 +233,7 @@ export default function ProspectsPage() {
                       key={item}
                       onClick={() => setPage(item)}
                       className={`w-7 h-7 rounded-lg text-xs font-medium transition ${
-                        item === page
-                          ? 'bg-indigo-600 text-white'
-                          : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+                        item === page ? 'bg-indigo-600 text-white' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
                       }`}
                     >
                       {item}
@@ -222,7 +241,7 @@ export default function ProspectsPage() {
                   )
                 )}
               <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
                 disabled={page === totalPages}
                 className="flex items-center gap-1 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-slate-300 rounded-lg text-xs transition"
               >

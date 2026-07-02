@@ -38,7 +38,7 @@ function UpgradePrompt({ onClose }) {
 }
 
 /* ── Main modal ────────────────────────────────────────────────────── */
-export default function AddProspectModal({ onClose }) {
+export default function AddProspectModal({ onClose, onCreated }) {
   const queryClient = useQueryClient();
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [form, setForm] = useState({
@@ -48,9 +48,10 @@ export default function AddProspectModal({ onClose }) {
 
   const mutation = useMutation({
     mutationFn: (data) => api.post('/prospects', data),
-    onSuccess: () => {
+    onSuccess: (response) => {
       toast.success('Prospect added — pipeline starting…');
-      queryClient.invalidateQueries(['prospects']);
+      queryClient.invalidateQueries({ queryKey: ['prospects'] });
+      onCreated?.(response.data.data);
       onClose();
     },
     onError: (err) => {
