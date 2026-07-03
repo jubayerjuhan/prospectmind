@@ -52,6 +52,8 @@ const launchBrowser = () =>
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-blink-features=AutomationControlled',
+      '--disable-dev-shm-usage',
+      '--single-process',
       '--window-size=1280,900',
     ],
   });
