@@ -37,9 +37,9 @@ const organizationSchema = new mongoose.Schema(
 );
 
 // Plan limits
-organizationSchema.methods.getProspectLimit = function () {
-  const limits = { free: 50, pro: 500, enterprise: Infinity };
-  return limits[this.plan] || 50;
+organizationSchema.methods.getProspectLimit = function() {
+  const limits = { free: 100, pro: 500, enterprise: Infinity };
+  return limits[this.plan] || 100;
 };
 
 organizationSchema.methods.canAddProspect = function () {
