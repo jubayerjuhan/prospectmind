@@ -1,6 +1,6 @@
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { LayoutDashboard, Users, CreditCard, Settings, LogOut, Zap, Megaphone } from 'lucide-react';
+import { LayoutDashboard, Users, CreditCard, Settings, LogOut, Zap, Megaphone, Code2 } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 import api from '../../lib/api';
 
@@ -8,6 +8,7 @@ const nav = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/prospects', icon: Users, label: 'Prospects' },
   { to: '/campaigns', icon: Megaphone, label: 'Campaigns' },
+  { to: '/github-talent-engine', icon: Code2, label: 'Talent Engine' },
   { to: '/billing', icon: CreditCard, label: 'Billing' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];

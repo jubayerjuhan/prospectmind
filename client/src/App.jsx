@@ -11,6 +11,8 @@ import VerifyEmailPage from './pages/VerifyEmailPage';
 import DashboardPage from './pages/DashboardPage';
 import ProspectsPage from './pages/ProspectsPage';
 import CampaignsPage from './pages/CampaignsPage';
+import GithubTalentEnginePage from './pages/GithubTalentEnginePage';
+import GithubTalentCampaignDetailPage from './pages/GithubTalentCampaignDetailPage';
 import ProspectDetailPage from './pages/ProspectDetailPage';
 import BillingPage from './pages/BillingPage';
 import SettingsPage from './pages/SettingsPage';
@@ -39,6 +41,8 @@ export default function App() {
             <Route path="dashboard" element={<DashboardPage />} />
             <Route path="prospects" element={<ProspectsPage />} />
             <Route path="campaigns" element={<CampaignsPage />} />
+            <Route path="github-talent-engine" element={<GithubTalentEnginePage />} />
+            <Route path="github-talent-engine/:id" element={<GithubTalentCampaignDetailPage />} />
             <Route path="prospects/:id" element={<ProspectDetailPage />} />
             <Route path="billing" element={<BillingPage />} />
             <Route path="settings" element={<SettingsPage />} />
