@@ -1,0 +1,470 @@
+Title: Speakers | EthCC[9]
+
+URL Source: http://ethcc.io/ethcc-9/speakers
+
+Markdown Content:
+## Cookie Settings
+
+We use cookies to enhance your experience and analyze our website traffic. By accepting, you help us improve our services. [Learn more](http://ethcc.io/conduct)
+
+Accept All[Personalise](http://ethcc.io/privacy-settings)Reject All
+
+I understand
+
+Menu
+
+[](http://ethcc.io/)
+
+# Speakers
+
+Explore the brilliant minds who will take the stage at EthCC[9].
+
+All tracks
+
+ASC
+
+DeFi
+
+![Image 1: Profile photo of Josef Jelacic](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F20260107T0910-202601070910-josef-jelacic.jpeg%3Falt%3Dmedia%26token%3D1767777014995&w=3840&q=75)
+
+[](https://x.com/josefje)
+
+### Josef Jelacic
+
+Own
+
+DeFi
+
+![Image 2: Profile photo of Andrew O'Neill](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F20251124T1430-202511241430-andrew-oneill.jpeg%3Falt%3Dmedia%26token%3D1763994604024&w=3840&q=75)
+
+[](https://www.linkedin.com/in/andrew-o-neill-cfa-954326a1)
+
+### Andrew O'Neill
+
+S&P Global Ratings
+
+DeFi
+
+![Image 3: Profile photo of Kite Liu](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F20251118T0306-202511180306-kite-liu.jpeg%3Falt%3Dmedia%26token%3D1763435165125&w=3840&q=75)
+
+[](https://x.com/kiteliudingyue)
+
+### Kite Liu
+
+Uniswap Labs
+
+Core Protocol
+
+![Image 4: Profile photo of cheeky-gorilla](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F20251103T1747-202511031747.jpeg%3Falt%3Dmedia%26token%3D1762192023185&w=3840&q=75)
+
+[](https://x.com/ProtocolGuild)
+
+### cheeky-gorilla
+
+Protocol Guild
+
+DeFi
+
+![Image 5: Profile photo of James Wo](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F20251201T1051-202512011051-james-wo.jpeg%3Falt%3Dmedia%26token%3D1764586315334&w=3840&q=75)
+
+[](https://x.com/realjameswo)
+
+### James Wo
+
+Digital Finance Group (DFG)
+
+Cypherpunk & Privacy
+
+![Image 6: Profile photo of Paul Brody](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F202603051659-undefined-undefined.jpeg%3Falt%3Dmedia%26token%3D3cee868d-7666-40b2-a75b-6003fbdf8892&w=3840&q=75)
+
+[](https://www.linkedin.com/in/pbrody/)[](https://x.com/pbrody)
+
+### Paul Brody
+
+Nightfall Networks
+
+DeFi
+
+![Image 7: Profile photo of Juan David Mendieta](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F20251203T1023-202512031023-juan-david-mendieta.jpeg%3Falt%3Dmedia%26token%3D1764757424117&w=3840&q=75)
+
+[](https://www.linkedin.com/in/davidmendieta/)[](https://x.com/JuanDMendieta)
+
+### Juan David Mendieta
+
+Keyrock
+
+DeFi
+
+![Image 8: Profile photo of Alex Cutler](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F20251104T0959-202511040959-alex-cutler.jpeg%3Falt%3Dmedia%26token%3D1762250360060&w=3840&q=75)
+
+[](https://x.com/wagmiAlexander)
+
+### Alex Cutler
+
+Aerodrome Finance / Dromos Labs
+
+Stablecoins & Global Payments
+
+![Image 9: Profile photo of Pedro Gomes](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F20260112T1539-202601121539-pedro-gomes.jpeg%3Falt%3Dmedia%26token%3D1768232396445&w=3840&q=75)
+
+[](https://linkedin.com/in/pedrouid)[](https://x.com/pedrouid)
+
+### Pedro Gomes
+
+WalletConnect
+
+Built on Ethereum
+
+![Image 10: Profile photo of Noid](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F20251211T0654-202512110654-michael-bey.jpeg%3Falt%3Dmedia%26token%3D1765436059741&w=3840&q=75)
+
+[](https://x.com/__noided)
+
+### Noid
+
+Kraken
+
+Cypherpunk & Privacy
+
+![Image 11: Profile photo of Costanza](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F20260212T0957-202602120957-costanza-gallo.jpeg%3Falt%3Dmedia%26token%3D1770890233803&w=3840&q=75)
+
+[](https://x.com/costgallo)
+
+### Costanza
+
+Safe Labs
+
+DeFi
+
+![Image 12: Profile photo of Stani  Kulechov](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F20260116T1940-202601161940-stani-kulechov.jpeg%3Falt%3Dmedia%26token%3D1768592406866&w=3840&q=75)
+
+[](https://www.linkedin.com/in/stani-kulechov/)[](https://x.com/StaniKulechov)
+
+### Stani Kulechov
+
+Aave Labs
+
+The Unexpected
+
+![Image 13: Profile photo of SEVEN](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-8%252F20250121T1544-202501211544-steven-waterhouse.png%3Falt%3Dmedia%26token%3D1737474277682&w=3840&q=75)
+
+[](https://x.com/deseventral)
+
+### SEVEN
+
+Nazare Ventures
+
+Security
+
+![Image 14: Profile photo of Charles Guillemet](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F20260123T1509-202601231509-charles-guillemet.jpeg%3Falt%3Dmedia%26token%3D1769180997821&w=3840&q=75)
+
+[](https://x.com/p3b7_?s=21)
+
+### Charles Guillemet
+
+Ledger
+
+Regulation & Compliance
+
+![Image 15: Profile photo of Faustine Fleuret](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F20251126T1023-202511261023-faustine-fleuret.jpeg%3Falt%3Dmedia%26token%3D1764152601372&w=3840&q=75)
+
+[](https://www.linkedin.com/in/faustine-fleuret-640b67a4/?originalSubdomain=fr)
+
+### Faustine Fleuret
+
+Morpho
+
+Product & Marketers
+
+![Image 16: Profile photo of Victoria CALMON](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-8%252F20250120T1803-202501201803-victoria-calmon.jpeg%3Falt%3Dmedia%26token%3D1737396182699&w=3840&q=75)
+
+[](https://www.linkedin.com/in/victoriacalmon/)[](https://x.com/v_calmon)
+
+### Victoria CALMON
+
+Kaiko
+
+Product & Marketers
+
+![Image 17: Profile photo of Maria Magenes](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F20251119T2132-202511192132-maria-magenes.jpeg%3Falt%3Dmedia%26token%3D1763587927323&w=3840&q=75)
+
+[](https://x.com/mariamagenes1)
+
+### Maria Magenes
+
+SpaghettETH, Hype
+
+DeFi
+
+![Image 18: Profile photo of Merlin Egalite](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-8%252F20250124T1501-202501241501-merlin-egalite.jpeg%3Falt%3Dmedia%26token%3D1737730896595&w=3840&q=75)
+
+[](https://x.com/merlinegalite)
+
+### Merlin Egalite
+
+Morpho
+
+Applied cryptography
+
+![Image 19: Profile photo of Antonio Sanso](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F20251119T1611-202511191611-antonio-sanso.jpeg%3Falt%3Dmedia%26token%3D1763568664367&w=3840&q=75)
+
+[](https://x.com/asanso)
+
+### Antonio Sanso
+
+Ethereum Foundation
+
+RWA Tokenisation
+
+![Image 20: Profile photo of Fredrik Haga](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F20251125T1324-202511251324-fredrik-haga.jpeg%3Falt%3Dmedia%26token%3D1764077086811&w=3840&q=75)
+
+[](https://x.com/hagaetc)
+
+### Fredrik Haga
+
+Dune
+
+AI Agents and Automation
+
+![Image 21: Profile photo of E.G.](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F20251111T1846-202511111846-eg-galano.jpeg%3Falt%3Dmedia%26token%3D1762886788358&w=3840&q=75)
+
+[](https://x.com/egalano)
+
+### E.G.
+
+Infura/DIN
+
+The Unexpected
+
+![Image 22: Profile photo of Jean-Marc Stenger](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F20260202T0956-202602020956-jean-marc-stenger.jpeg%3Falt%3Dmedia%26token%3D1770026161235&w=3840&q=75)
+
+[](https://www.linkedin.com/in/jean-marc-stenger-89115040/)
+
+### Jean-Marc Stenger
+
+Société Générale-Forge
+
+RWA Tokenisation
+
+![Image 23: Profile photo of Bhaji Illuminati](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F20260203T2143-202602032143-bhaji-illuminati.jpeg%3Falt%3Dmedia%26token%3D1770154983289&w=3840&q=75)
+
+[](https://www.linkedin.com/in/bhajiilluminati)[](https://x.com/itsbhaji)
+
+### Bhaji Illuminati
+
+Centrifuge
+
+EthStaker
+
+![Image 24: Profile photo of Jihoon Song](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F202603071033-jihoon-song.png%3Falt%3Dmedia%26token%3D163f64c0-ef56-4bd9-a104-8d05c1c8d1fd&w=3840&q=75)
+
+[](https://x.com/jih2nn)
+
+### Jihoon Song
+
+Ethereum Foundation
+
+Breakout sessions
+
+![Image 25: Profile photo of Mugen](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F202603251544-pierre-semanne.png%3Falt%3Dmedia%26token%3De940b793-df51-447f-b1d1-fb15932ab182&w=3840&q=75)
+
+[](https://x.com/0xMugen_)
+
+### Mugen
+
+Rune labs
+
+Layer 2s
+
+![Image 26: Profile photo of Barnabé Monnot](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F20260209T1624-202602091624-barnabe-monnot.jpeg%3Falt%3Dmedia%26token%3D1770654288435&w=3840&q=75)
+
+[](https://x.com/barnabemonnot)
+
+### Barnabé Monnot
+
+Ethereum Foundation
+
+Regulation & Compliance
+
+![Image 27: Profile photo of Ophelia Snyder](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F20260205T2150-202602052150-ophelia-snyder.jpeg%3Falt%3Dmedia%26token%3D1770328221241&w=3840&q=75)
+
+[](https://www.linkedin.com/in/opheliasnyder/)[](https://x.com/OpheliaBSnyder)
+
+### Ophelia Snyder
+
+21shares
+
+Research
+
+![Image 28: Profile photo of David Mühlbacher](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F20251105T1232-202511051232-david-muhlbacher.jpeg%3Falt%3Dmedia%26token%3D1762345936801&w=3840&q=75)
+
+[](https://x.com/stereumdev)
+
+### David Mühlbacher
+
+Stereum Services FlexCo
+
+TERSE
+
+![Image 29: Profile photo of Robert Koschig](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F20260311T1235-202603111235-robert-koschig.jpeg%3Falt%3Dmedia%26token%3D1773232540556&w=3840&q=75)
+
+[](https://www.linkedin.com/in/robert-koschig-24b69b4a/)
+
+### Robert Koschig
+
+1kx Crypto Investments
+
+Product & Marketers
+
+![Image 30: Profile photo of Zuz](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F202603061736-undefined-undefined.jpeg%3Falt%3Dmedia%26token%3D2de74058-1c47-4a27-969c-1f2398d8f2e2&w=3840&q=75)
+
+[](https://www.linkedin.com/in/zuza-zuber-a627b69a/)[](https://x.com/zuzazuber)
+
+### Zuz
+
+Leadership Coaching | Zuza Zuber
+
+Built on Ethereum
+
+![Image 31: Profile photo of Kevin Jones](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F20260211T1753-202602111753-kevin-jones.jpeg%3Falt%3Dmedia%26token%3D1770832391400&w=3840&q=75)
+
+[](https://x.com/cryptomastery_)
+
+### Kevin Jones
+
+BuidlGuidl / Edge & Node
+
+Research
+
+![Image 32: Profile photo of Derek Sorensen](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F20251203T1741-202512031741-derek-sorensen.jpeg%3Falt%3Dmedia%26token%3D1764783689577&w=3840&q=75)
+
+[](https://x.com/dhsorens)
+
+### Derek Sorensen
+
+Ethereum Foundation
+
+The Unexpected
+
+![Image 33: Profile photo of Hong Kim](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F20251105T1738-202511051738-hong-kim.jpeg%3Falt%3Dmedia%26token%3D1762364299537&w=3840&q=75)
+
+[](https://x.com/hongkim__)
+
+### Hong Kim
+
+Bitwise Asset Management
+
+EthStaker
+
+![Image 34: Profile photo of Ken Smith](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F202603170931-ken-smith.jpg%3Falt%3Dmedia%26token%3D4d78ae72-4168-4a85-8c1a-f950918307ea&w=3840&q=75)
+
+[](https://x.com/nextblock_eth)
+
+### Ken Smith
+
+NextBlock Solutions
+
+Core Protocol
+
+![Image 35: Profile photo of Terence Tsao](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F202603071030-undefined-undefined.png%3Falt%3Dmedia%26token%3D65d4dbcb-dc5c-4e59-98cd-14478befe978&w=3840&q=75)
+
+[](https://x.com/terencechain)
+
+### Terence Tsao
+
+offchain labs
+
+If you know you know
+
+![Image 36: Profile photo of Sophia](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F202603240717-sophia-dew.jpg%3Falt%3Dmedia%26token%3Dd780eb84-dc90-460b-bf09-cd5d78eddd31&w=3840&q=75)
+
+[](https://x.com/sodofi_)
+
+### Sophia
+
+Ethereum Foundation
+
+Stablecoins & Global Payments
+
+![Image 37: Profile photo of agaperste](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F20260312T1447-202603121447-jackie-zhang.jpeg%3Falt%3Dmedia%26token%3D1773326878563&w=3840&q=75)
+
+[](https://x.com/agaperste)
+
+### agaperste
+
+Bridge
+
+EthStaker
+
+![Image 38: Profile photo of Luca Winter](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-8%252F20250210T2127-202502102127-luca-winter.png%3Falt%3Dmedia%26token%3D1739222871494&w=3840&q=75)
+
+[](https://www.linkedin.com/in/lucawinter/)[](https://x.com/serenita_luca)
+
+### Luca Winter
+
+Serenita
+
+Security
+
+![Image 39: Profile photo of AliceAndBob](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F202601142200-undefined-undefined.jpg%3Falt%3Dmedia%26token%3D49ef68b7-cfe2-42a8-bcee-c03699e4be8c&w=3840&q=75)
+
+[](https://x.com/AliceAndB0b)
+
+### AliceAndBob
+
+Certora
+
+The Unexpected
+
+![Image 40: Profile photo of Deca](http://ethcc.io/_next/image?url=https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Fcall-for-spqr.appspot.com%2Fo%2Fprofile-pictures%252Fethcc%252Fethcc-9%252F202603200826-giulio-de-cadilhac.jpeg%3Falt%3Dmedia%26token%3Deefca17f-c5c9-4c8b-92c9-85d29d0749bf&w=3840&q=75)
+
+[](https://www.linkedin.com/in/deca12x/)[](https://x.com/deca12x)
+
+### Deca
+
+Urbe.eth
+
+*   [Home](http://ethcc.io/)
+*   [Map](http://ethcc.io/map)
+*   [Archives](http://ethcc.io/archives)
+*   [Speakers](http://ethcc.io/speakers)
+*   [Agenda](http://ethcc.io/ethcc-9/agenda)
+*   [Sponsors](http://ethcc.io/sponsors)
+*   [EthCC Week](http://ethcc.io/week)
+*   [EthVC](http://ethcc.io/ethvc)
+
+*   [Essential Info](http://ethcc.io/info)
+*   [FAQ](http://ethcc.io/faq)
+*   [Guide to Cannes](http://ethcc.io/guide-to-cannes)
+*   [Code of Conduct](http://ethcc.io/conduct)
+*   [Terms and Conditions](http://ethcc.io/terms-and-conditions)
+*   [About us](http://ethcc.io/about-us)
+*   [Ethereum France](https://www.ethereum-france.com/)
+*   [EthCC[8]](http://ethcc.io/ethcc-8)
+
+[](http://ethcc.io/)
+
+©2026 ETHCC All rights reserved
+
+## GET THE LATEST ETHCC UPDATES 
+
+DELIVERED 
+
+STRAIGHT TO 
+
+YOUR INBOX Stay Tuned
+
+[X](https://x.com/EthCC)[Discord](https://discord.gg/khd5cdAMEm)[Youtube](https://www.youtube.com/channel/UCf7zF8tFOb9T58nBo09BhAw)[Telegram](https://t.me/ethccweek)[LinkedIn](https://www.linkedin.com/company/ethcc/)
+
+## GET THE LATEST 
+
+ETHCC UPDATES 
+
+ DELIVERED STRAIGHT 
+
+ TO YOUR 
+
+INBOX Stay Tuned
+
+[](http://ethcc.io/)©2026 ETHCC All rights reserved
+
+[X](https://x.com/EthCC)[Discord](https://discord.gg/khd5cdAMEm)[Youtube](https://www.youtube.com/channel/UCf7zF8tFOb9T58nBo09BhAw)[Telegram](https://t.me/ethccweek)[LinkedIn](https://www.linkedin.com/company/ethcc/)

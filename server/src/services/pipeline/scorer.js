@@ -3,7 +3,7 @@
  * Generates a 0–100 fit score and outreach priority.
  */
 
-import { askClaude } from '../ai/claudeClient.js';
+import { askClaude, AIFallbackRequiredError } from '../ai/claudeClient.js';
 import { buildProfileSnapshot, clipPromptText } from './profileSnapshot.js';
 
 const SYSTEM_PROMPT = `You are a precision scoring engine for a talent intelligence platform.
@@ -19,7 +19,7 @@ const SCORE_LABELS = {
   irrelevant: 'not_relevant',
 };
 
-export const scoreProfile = async (prospect, enrichedProfile, classification, campaignDescription = '') => {
+export const scoreProfile = async (prospect, enrichedProfile, classification, campaignDescription = '', { callAI = askClaude } = {}) => {
   const profileSnapshot = buildProfileSnapshot(enrichedProfile);
   let campaignPrompt = '';
   if (campaignDescription && campaignDescription.trim() !== '') {
@@ -67,5 +67,24 @@ Return JSON:
   "contactabilityNotes": "where are they most active/reachable"
 }`;
 
-  return askClaude({ systemPrompt: SYSTEM_PROMPT, userPrompt, maxTokens: 512 });
+  try {
+    return await callAI({ systemPrompt: SYSTEM_PROMPT, userPrompt, maxTokens: 512, jsonMode: true });
+  } catch (error) {
+    if (error instanceof AIFallbackRequiredError) {
+      console.warn(`[scorer] Hard fallback triggered for prospect ${prospect._id}`);
+      return {
+        compatibilityScore: 50,
+        scoreLabel: 'low_priority',
+        outreachPriority: 'low',
+        scoreBreakdown: {
+          "Fallback Default": { score: 50, weight: 1.0, note: "AI Unavailable" }
+        },
+        scoreReasoning: "Fallback data applied because AI routing failed across all providers.",
+        bestContactChannel: "email",
+        contactabilityNotes: "Fallback default",
+        __isFallback: true
+      };
+    }
+    throw error;
+  }
 };

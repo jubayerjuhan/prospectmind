@@ -3,7 +3,7 @@
  * Determines what role(s) this person plays and the best angle to approach them.
  */
 
-import { askClaude } from '../ai/claudeClient.js';
+import { askClaude, AIFallbackRequiredError } from '../ai/claudeClient.js';
 import { buildProfileSnapshot } from './profileSnapshot.js';
 
 const SYSTEM_PROMPT = `You are a senior talent intelligence analyst specializing in Web3 and tech ecosystems.
@@ -11,7 +11,7 @@ Your job is to classify prospects into roles and determine the most effective ou
 Be precise — wrong classification leads to wrong outreach and destroys trust.
 Always return valid JSON.`;
 
-export const classifyProfile = async (prospect, enrichedProfile) => {
+export const classifyProfile = async (prospect, enrichedProfile, { callAI = askClaude } = {}) => {
   const profileSnapshot = buildProfileSnapshot(enrichedProfile, { includeContact: false });
   const userPrompt = `Classify this prospect based on their enriched profile.
 
@@ -48,5 +48,21 @@ Return JSON:
   "keySignals": ["signal1", "signal2", "signal3"]
 }`;
 
-  return askClaude({ systemPrompt: SYSTEM_PROMPT, userPrompt, maxTokens: 512 });
+  try {
+    return await callAI({ systemPrompt: SYSTEM_PROMPT, userPrompt, maxTokens: 512, jsonMode: true });
+  } catch (error) {
+    if (error instanceof AIFallbackRequiredError) {
+      console.warn(`[classifier] Hard fallback triggered for prospect ${prospect._id}`);
+      return {
+        roleClassification: ['talent'],
+        primaryAngle: 'talent',
+        secondaryAngle: null,
+        classificationReasoning: 'Automatically assigned due to AI unavailability.',
+        isHybrid: false,
+        keySignals: [],
+        __isFallback: true,
+      };
+    }
+    throw error;
+  }
 };

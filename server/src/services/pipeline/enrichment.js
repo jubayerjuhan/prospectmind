@@ -8,7 +8,7 @@
  *  4. Feed ALL real data to AI → structured profile (no guessing)
  */
 
-import { askClaude } from '../ai/claudeClient.js';
+import { askClaude, AIFallbackRequiredError } from '../ai/claudeClient.js';
 import { scrapeLinkedIn } from '../scraper/linkedinScraper.js';
 import { scrapePage } from '../scraper/pageScraper.js';
 import { clipPromptText } from './profileSnapshot.js';
@@ -25,7 +25,7 @@ Always return valid JSON.`;
 
 const SERPER_API_URL = 'https://google.serper.dev/search';
 const LINKEDIN_SECTION_LIMIT = 4500;
-const EXTRA_PAGE_SECTION_LIMIT = 1400;
+const EXTRA_PAGE_SECTION_LIMIT = 4000;
 const SNIPPET_SECTION_LIMIT = 240;
 
 // ─── Serper Fallback Search ───────────────────────────────────────────────────
@@ -176,7 +176,7 @@ const extractLinksFromText = (text, firstName, lastName) => {
 
 // ─── Main Export ──────────────────────────────────────────────────────────────
 
-export const enrichProfile = async (prospect, discoveredIdentity) => {
+export const enrichProfile = async (prospect, discoveredIdentity, { callAI = askClaude, prospectContext = '' } = {}) => {
   let { linkedinUrl, githubUrl, xUrl, telegramHandle, email } = discoveredIdentity;
   const fullName = `${prospect.firstName} ${prospect.lastName || ''}`.trim();
 
@@ -231,6 +231,13 @@ export const enrichProfile = async (prospect, discoveredIdentity) => {
         if (xm && !X_BLOCKLIST.includes(xm[1]) && usernameMatchesName(xm[1], firstName, lastName)) {
           xUrl = link.split('?')[0];
           console.log(`[enrichment] 🔗 X/Twitter from ${scrapableUrls[i]}: ${xUrl}`);
+        }
+      }
+      if (!email && link.startsWith('mailto:')) {
+        const extractedEmail = link.replace('mailto:', '').split('?')[0].trim();
+        if (extractedEmail && !extractedEmail.includes('example') && !extractedEmail.includes('test')) {
+          email = extractedEmail;
+          console.log(`[enrichment] 🔗 Email from ${scrapableUrls[i]}: ${email}`);
         }
       }
     }
@@ -303,7 +310,7 @@ Use the scraped data as primary source. Fill in gaps using your general knowledg
 === PERSON ===
 Name: ${fullName}
 Company: ${prospect.company || 'Unknown'}
-
+${prospectContext ? `\n=== USER-PROVIDED CONTEXT (treat as reliable background info — verify against scraped data) ===\n${prospectContext}\n` : ''}
 ${linkedinSection}
 
 ${snippetSection}
@@ -315,7 +322,7 @@ ${githubData ? JSON.stringify(githubData, null, 2) : 'No GitHub profile found.'}
 
 === INSTRUCTIONS ===
 - Use scraped data as the primary source of truth
-- Fill gaps with your general knowledge about this person and their public work
+- The user-provided context gives you additional hints — use it to cross-verify and fill gaps, but always prefer scraped data when it conflicts
 - Produce the richest possible profile — don't leave arrays empty if you know the information
 - Estimate yearsOfExperience and seniority from available context
 
@@ -370,7 +377,35 @@ Return JSON:
   }
 }`;
 
-  const enriched = await askClaude({ systemPrompt: SYSTEM_PROMPT, userPrompt, maxTokens: 1500 });
+  let enriched = {};
+  try {
+    enriched = await callAI({ systemPrompt: SYSTEM_PROMPT, userPrompt, maxTokens: 1500, jsonMode: true });
+  } catch (error) {
+    if (error instanceof AIFallbackRequiredError) {
+      console.warn(`[enrichment] Hard fallback triggered for prospect ${prospect._id}`);
+      enriched = {
+        currentRole: null,
+        seniority: "unknown",
+        yearsOfExperience: null,
+        location: null,
+        programmingLanguages: [],
+        blockchainEcosystems: [],
+        frameworks: [],
+        founderExperience: false,
+        web3NativeScore: 0,
+        influenceLevel: "unknown",
+        bio: "Fallback data applied because AI routing failed across all providers.",
+        experience: [],
+        education: [],
+        recentActivity: [],
+        previousCompanies: [],
+        daoInvolvement: [],
+        __isFallback: true
+      };
+    } else {
+      throw error;
+    }
+  }
 
   return {
     ...discoveredIdentity,

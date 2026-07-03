@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import Prospect from '../models/Prospect.js';
 import ProspectList from '../models/ProspectList.js';
 import { buildProspectFilter } from '../utils/buildProspectFilter.js';
-import { runPipeline } from '../services/pipeline/runner.js';
+import { queuePipelineRun } from '../services/pipeline/queue.js';
 import { previewSpeakerImport } from '../services/scraper/speakerImportService.js';
 
 const LIST_SUMMARY_PROJECTION = '_id firstName lastName company pipelineStatus compatibilityScore outreachPriority primaryAngle';
@@ -215,6 +215,9 @@ export const getProspectLists = async (req, res) => {
           name: list.name,
           type: list.type,
           filters: list.type === 'dynamic' ? normalizeFilters(list.filters) : undefined,
+          campaignDescription: list.campaignDescription || '',
+          targetEcosystemContext: list.targetEcosystemContext || '',
+          targetPersonas: list.targetPersonas || [],
           prospectCount,
           createdAt: list.createdAt,
           updatedAt: list.updatedAt,
@@ -265,6 +268,9 @@ export const getProspectList = async (req, res) => {
         name: list.name,
         type: list.type,
         filters: list.type === 'dynamic' ? normalizeFilters(list.filters) : undefined,
+        campaignDescription: list.campaignDescription || '',
+        targetEcosystemContext: list.targetEcosystemContext || '',
+        targetPersonas: list.targetPersonas || [],
         prospectCount: resolved.total,
         prospects: resolved.prospects,
         createdAt: list.createdAt,
@@ -280,7 +286,7 @@ export const getProspectList = async (req, res) => {
 // POST /api/prospect-lists
 export const createProspectList = async (req, res) => {
   try {
-    const { name, type = 'manual', prospectIds = [], filters } = req.body;
+    const { name, type = 'manual', prospectIds = [], filters, campaignDescription = '', targetEcosystemContext = '' } = req.body;
 
     if (!name?.trim()) {
       return res.status(400).json({ success: false, message: 'List name is required.' });
@@ -303,6 +309,11 @@ export const createProspectList = async (req, res) => {
       createdBy: req.user._id,
       name: name.trim(),
       type,
+      campaignDescription: campaignDescription.trim(),
+      targetEcosystemContext: targetEcosystemContext.trim(),
+      targetPersonas: Array.isArray(req.body.targetPersonas)
+        ? req.body.targetPersonas.map((p) => String(p).trim()).filter(Boolean)
+        : [],
     };
 
     if (type === 'manual') {
@@ -374,6 +385,29 @@ export const updateProspectList = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Dynamic lists cannot store manual prospect membership.' });
     }
 
+    if (typeof req.body.campaignDescription === 'string') {
+      list.campaignDescription = req.body.campaignDescription.trim();
+    }
+
+    if (typeof req.body.targetEcosystemContext === 'string') {
+      list.targetEcosystemContext = req.body.targetEcosystemContext.trim();
+    }
+
+    if (Array.isArray(req.body.targetPersonas)) {
+      list.targetPersonas = req.body.targetPersonas.map((p) => String(p).trim()).filter(Boolean);
+    }
+
+    const ALLOWED_AI_MODELS = ['gemini', 'groq', 'auto'];
+    if (req.body.preferredAiModel !== undefined) {
+      if (!ALLOWED_AI_MODELS.includes(req.body.preferredAiModel)) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid preferredAiModel. Must be one of: ${ALLOWED_AI_MODELS.join(', ')}.`,
+        });
+      }
+      list.preferredAiModel = req.body.preferredAiModel;
+    }
+
     await list.save();
     res.json({ success: true, data: list });
   } catch (error) {
@@ -426,6 +460,79 @@ export const addProspectsToList = async (req, res) => {
       success: true,
       data: { _id: list._id, prospectCount: list.prospects.length },
       message: 'Prospects added to list.',
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// POST /api/prospect-lists/:id/add-and-create
+// Atomic endpoint: creates a new prospect + adds to campaign in one shot.
+// Respects campaign gate — pipeline only queued if campaign settings are present.
+export const addAndCreateProspect = async (req, res) => {
+  try {
+    const { list, error } = await getManualList({
+      listId: req.params.id,
+      organizationId: req.organization._id,
+    });
+    if (error) {
+      return res.status(error.status).json({ success: false, message: error.message });
+    }
+
+    // Plan limit check
+    if (!req.organization.canAddProspect()) {
+      return res.status(403).json({
+        success: false,
+        message: `You've reached your plan limit (${req.organization.getProspectLimit()} prospects/month). Upgrade to add more.`,
+        code: 'LIMIT_REACHED',
+      });
+    }
+
+    const { firstName, lastName, company, typeHint, description, rawEmail, rawLinkedin, rawX, rawTelegram, rawGithub } = req.body;
+
+    if (!firstName?.trim()) {
+      return res.status(400).json({ success: false, message: 'First name is required.' });
+    }
+
+    // Check campaign gate BEFORE creating
+    const hasCampaignSettings =
+      Boolean(list.campaignDescription?.trim()) &&
+      Boolean(list.targetEcosystemContext?.trim());
+
+    // Create the prospect
+    const prospect = await Prospect.create({
+      organization: req.organization._id,
+      createdBy: req.user._id,
+      firstName: firstName.trim(),
+      lastName: lastName?.trim() || '',
+      company: company?.trim() || '',
+      typeHint: typeHint || 'unknown',
+      description: description?.trim() || '',
+      rawEmail: rawEmail?.trim() || '',
+      rawLinkedin: rawLinkedin?.trim() || '',
+      rawX: rawX?.trim() || '',
+      rawTelegram: rawTelegram?.trim() || '',
+      rawGithub: rawGithub?.trim() || '',
+    });
+
+    // Add to the campaign
+    list.prospects = dedupeProspectIds([...list.prospects.map((id) => id.toString()), prospect._id.toString()]);
+    await list.save();
+
+    // Only queue pipeline if campaign settings are present
+    let pipelineQueued = false;
+    if (hasCampaignSettings) {
+      queuePipelineRun(prospect._id).catch((err) =>
+        console.error(`Queue error for ${prospect._id}:`, err.message)
+      );
+      pipelineQueued = true;
+    }
+
+    res.status(201).json({
+      success: true,
+      data: prospect,
+      pipelineQueued,
+      campaignSettingsMissing: !hasCampaignSettings,
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -499,6 +606,10 @@ export const importProspectsConfirm = async (req, res) => {
     });
     if (error) {
       return res.status(error.status).json({ success: false, message: error.message });
+    }
+
+    if (!list.campaignDescription?.trim() || !list.targetEcosystemContext?.trim()) {
+      return res.status(400).json({ success: false, message: 'Please configure Campaign & Outreach Goal and AI Pipeline Preferences before importing prospects.' });
     }
 
     const candidates = Array.isArray(req.body.candidates) ? req.body.candidates.map(normalizeImportedCandidate) : [];
@@ -583,7 +694,7 @@ export const importProspectsConfirm = async (req, res) => {
       await list.save();
 
       created.forEach((prospect) =>
-        runPipeline(prospect._id).catch((err) => console.error(`Pipeline error for ${prospect._id}:`, err.message))
+        queuePipelineRun(prospect._id).catch((err) => console.error(`Queue error for ${prospect._id}:`, err.message))
       );
     }
 
@@ -598,5 +709,81 @@ export const importProspectsConfirm = async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message || 'Failed to import prospects.' });
+  }
+};
+
+// POST /api/prospect-lists/:id/pause
+export const pauseCampaign = async (req, res) => {
+  try {
+    const { list, error } = await getManualList({
+      listId: req.params.id,
+      organizationId: req.organization._id,
+    });
+    if (error) {
+      return res.status(error.status).json({ success: false, message: error.message });
+    }
+
+    const statusesToPause = ['pending', 'discovering', 'enriching', 'classifying', 'scoring', 'generating'];
+
+    await Prospect.updateMany(
+      {
+        _id: { $in: list.prospects },
+        pipelineStatus: { $in: statusesToPause },
+        pipelinePaused: false
+      },
+      {
+        $set: {
+          pipelinePaused: true,
+          pipelinePausedAt: new Date(),
+        }
+      }
+    );
+
+    res.json({ success: true, message: 'Campaign paused successfully.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// POST /api/prospect-lists/:id/resume
+export const resumeCampaign = async (req, res) => {
+  try {
+    const { list, error } = await getManualList({
+      listId: req.params.id,
+      organizationId: req.organization._id,
+    });
+    if (error) {
+      return res.status(error.status).json({ success: false, message: error.message });
+    }
+
+    const pausedProspects = await Prospect.find({
+      _id: { $in: list.prospects },
+      $or: [
+        { pipelinePaused: true },
+        { pipelineStatus: 'paused' }
+      ]
+    });
+
+    if (pausedProspects.length > 0) {
+      await Prospect.updateMany(
+        { _id: { $in: pausedProspects.map(p => p._id) } },
+        {
+          $set: {
+            pipelinePaused: false,
+            pipelinePausedAt: null,
+            pipelineStatus: 'pending',
+            pipelineError: null,
+          }
+        }
+      );
+
+      pausedProspects.forEach(p => {
+        queuePipelineRun(p._id).catch(err => console.error(`Queue error for ${p._id}:`, err.message));
+      });
+    }
+
+    res.json({ success: true, message: 'Campaign resumed successfully.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
   }
 };

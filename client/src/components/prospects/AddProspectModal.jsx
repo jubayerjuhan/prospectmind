@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import api from '../../lib/api';
 import toast from 'react-hot-toast';
-import { X, Zap, ArrowRight } from 'lucide-react';
+import { X, Zap, ArrowRight, AlertTriangle } from 'lucide-react';
 
 /* ── Upgrade wall shown when the plan limit is hit ──────────────────── */
 function UpgradePrompt({ onClose }) {
@@ -38,26 +38,49 @@ function UpgradePrompt({ onClose }) {
 }
 
 /* ── Main modal ────────────────────────────────────────────────────── */
-export default function AddProspectModal({ onClose, onCreated }) {
+/**
+ * @param {{ onClose: Function, onCreated?: Function, campaignContext?: { campaignId: string, hasCampaignSettings: boolean } | null }} props
+ *
+ * When campaignContext is provided, uses the atomic POST /prospect-lists/:id/add-and-create
+ * endpoint so the prospect is created and added to the campaign in one shot.
+ * The pipeline is only queued if the campaign has settings configured.
+ */
+export default function AddProspectModal({ onClose, onCreated, campaignContext = null }) {
   const queryClient = useQueryClient();
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [form, setForm] = useState({
     firstName: '', lastName: '', company: '', typeHint: 'unknown',
     rawEmail: '', rawLinkedin: '', rawX: '', rawTelegram: '', rawGithub: '',
+    description: '',
   });
 
+  const isInCampaign = Boolean(campaignContext?.campaignId);
+  const campaignSettingsMissing = isInCampaign && !campaignContext?.hasCampaignSettings;
+
   const mutation = useMutation({
-    mutationFn: (data) => api.post('/prospects', data),
+    mutationFn: (data) => {
+      if (isInCampaign) {
+        // Atomic endpoint: creates prospect + adds to campaign in one DB operation
+        return api.post(`/prospect-lists/${campaignContext.campaignId}/add-and-create`, data);
+      }
+      return api.post('/prospects', data);
+    },
     onSuccess: (response) => {
-      toast.success('Prospect added — pipeline starting…');
+      const settingsMissing = response.data.campaignSettingsMissing;
+      if (settingsMissing) {
+        toast.success('Prospect added — configure Campaign Settings to start the AI pipeline.');
+      } else {
+        toast.success('Prospect added — pipeline starting…');
+      }
       queryClient.invalidateQueries({ queryKey: ['prospects'] });
+      queryClient.invalidateQueries({ queryKey: ['prospect-lists'] });
+      queryClient.invalidateQueries({ queryKey: ['prospect-list'] });
       onCreated?.(response.data.data);
       onClose();
     },
     onError: (err) => {
       const status = err.response?.status;
       const message = err.response?.data?.message || '';
-      // 403 from plan limit → show upgrade prompt instead of toast
       if (status === 403 && (message.toLowerCase().includes('limit') || message.toLowerCase().includes('plan'))) {
         setShowUpgrade(true);
       } else {
@@ -70,14 +93,30 @@ export default function AddProspectModal({ onClose, onCreated }) {
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 px-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg max-h-[92vh] flex flex-col">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 flex-shrink-0">
           <h2 className="text-white font-semibold">Add prospect</h2>
           <button onClick={onClose} className="text-slate-500 hover:text-white"><X size={18} /></button>
         </div>
+
+        {/* Campaign settings warning banner */}
+        {campaignSettingsMissing && (
+          <div className="mx-6 mt-4 flex items-start gap-3 rounded-xl border border-amber-800/60 bg-amber-950/30 px-4 py-3 flex-shrink-0">
+            <AlertTriangle size={16} className="text-amber-400 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-amber-300 text-xs font-semibold">Campaign settings not configured</p>
+              <p className="text-amber-400/80 text-xs mt-0.5 leading-relaxed">
+                The AI pipeline won't start until you fill in <strong>Campaign Description</strong> and{' '}
+                <strong>Target Ecosystem</strong> in Campaign Settings. The prospect will be added but stay in{' '}
+                <em>pending</em> status.
+              </p>
+            </div>
+          </div>
+        )}
+
         <form
           onSubmit={(e) => { e.preventDefault(); mutation.mutate(form); }}
-          className="px-6 py-5 space-y-4"
+          className="px-6 py-5 space-y-4 overflow-y-auto"
         >
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -103,6 +142,21 @@ export default function AddProspectModal({ onClose, onCreated }) {
               </select>
             </div>
           </div>
+
+          {/* Description — the key new field */}
+          <div>
+            <label className="text-slate-400 text-xs block mb-1">
+              Additional Context <span className="text-slate-600">(optional)</span>
+            </label>
+            <textarea
+              className="input-field resize-none"
+              rows={3}
+              placeholder="Describe what you know about this person — their role, background, where you met them, etc. The AI uses this to better verify identity and enrich their profile."
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+            />
+          </div>
+
           <div className="border-t border-slate-800 pt-3">
             <p className="text-slate-500 text-xs mb-3">Optional hints (any you have)</p>
             {[

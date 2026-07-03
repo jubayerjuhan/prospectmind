@@ -4,6 +4,7 @@ import {
   getProspects,
   getProspect,
   createProspect,
+  updateProspect,
   bulkCreateProspects,
   retryPipeline,
   pausePipeline,
@@ -23,6 +24,7 @@ router.post('/', createProspect);
 router.post('/bulk', bulkCreateProspects);
 
 router.get('/:id', getProspect);
+router.patch('/:id', updateProspect);
 router.delete('/:id', archiveProspect);
 router.post('/:id/retry', retryPipeline);
 router.post('/:id/pause', pausePipeline);

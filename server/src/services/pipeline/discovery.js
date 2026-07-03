@@ -9,7 +9,7 @@
  *  3. Full Name Company github           (for GitHub)
  */
 
-import { askClaude } from '../ai/claudeClient.js';
+import { askClaude, AIFallbackRequiredError } from '../ai/claudeClient.js';
 
 const SERPER_API_URL = 'https://google.serper.dev/search';
 
@@ -120,7 +120,7 @@ const findLinkedinUrl = async (fullName, company) => {
 
 // ─── AI Verifier ─────────────────────────────────────────────────────────────
 
-const verifyWithAI = async (prospect, linkedinCandidates, githubCandidates, searchSnippets) => {
+const verifyWithAI = async (prospect, linkedinCandidates, githubCandidates, searchSnippets, callAI = askClaude, prospectContext = '') => {
   const { firstName, lastName, company } = prospect;
 
   const systemPrompt = `You are an identity verification assistant.
@@ -131,6 +131,7 @@ Always return valid JSON.`;
   const userPrompt = `Person to identify:
 - Name: ${firstName} ${lastName || ''}
 - Company: ${company || 'Unknown'}
+${prospectContext ? `- Additional context: ${prospectContext}` : ''}
 
 LinkedIn candidates (real URLs from Google):
 ${linkedinCandidates.length ? linkedinCandidates.map((u, i) => `${i + 1}. ${u}`).join('\n') : 'None found'}
@@ -149,19 +150,36 @@ Pick the best URL for each. Return JSON:
   "reasoning": "one sentence"
 }`;
 
-  const result = await askClaude({ systemPrompt, userPrompt, maxTokens: 512 });
+  let result = {};
+  try {
+    result = await callAI({ systemPrompt, userPrompt, maxTokens: 512, jsonMode: true });
+  } catch (error) {
+    if (error instanceof AIFallbackRequiredError) {
+      console.warn(`[discovery] Hard fallback triggered for prospect ${prospect._id}`);
+      result = {
+        linkedinUrl: linkedinCandidates[0] || null,
+        githubUrl: githubCandidates[0] || null,
+        confidenceScore: 50,
+        reasoning: 'AI Unavailable — auto-selected first candidate',
+        __isFallback: true
+      };
+    } else {
+      throw error;
+    }
+  }
 
   return {
     linkedinUrl: result.linkedinUrl || null,
     githubUrl: result.githubUrl || null,
     confidenceScore: result.confidenceScore || 0,
     reasoning: result.reasoning || '',
+    __isFallback: result.__isFallback
   };
 };
 
 // ─── Main Export ──────────────────────────────────────────────────────────────
 
-export const resolveIdentity = async (prospect) => {
+export const resolveIdentity = async (prospect, { callAI = askClaude, prospectContext = '' } = {}) => {
   const { firstName, lastName, company, rawEmail, rawLinkedin, rawGithub, rawX, rawTelegram } = prospect;
   const fullName = `${firstName} ${lastName || ''}`.trim();
 
@@ -228,7 +246,7 @@ export const resolveIdentity = async (prospect) => {
   }
 
   // ── Step 5: Multiple candidates → AI picks the best one ─────────────────
-  const verified = await verifyWithAI(prospect, linkedinCandidates, githubCandidates, allSnippets);
+  const verified = await verifyWithAI(prospect, linkedinCandidates, githubCandidates, allSnippets, callAI, prospectContext);
 
   return {
     linkedinUrl: verified.linkedinUrl,
@@ -239,5 +257,6 @@ export const resolveIdentity = async (prospect) => {
     identityConfidenceScore: verified.confidenceScore,
     confidenceReasoning: verified.reasoning,
     searchQueries: [],
+    __isFallback: verified.__isFallback,
   };
 };

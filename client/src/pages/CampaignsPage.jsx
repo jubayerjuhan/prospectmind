@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../lib/api';
@@ -18,10 +18,32 @@ import {
   Link as LinkIcon,
   Pause,
   Play,
+  Settings2,
+  Users,
+  Sparkles,
+  Zap,
+  Loader2,
+  AlertTriangle,
+  UserCheck,
 } from 'lucide-react';
 import AddProspectModal from '../components/prospects/AddProspectModal';
 import CampaignImportModal from '../components/prospects/CampaignImportModal';
 import ProspectListModal from '../components/prospects/ProspectListModal';
+
+// Predefined persona chips — stored as free-form strings in DB.
+// Add new entries here as the product grows; no backend enum change needed.
+const PREDEFINED_PERSONAS = [
+  'Startup',
+  'VC',
+  'Incubator',
+  'Corporate',
+  'Founder',
+  'Top-gun Developer',
+  'Recruiter',
+  'Mentor',
+  'Advisor',
+  'Community Leader',
+];
 
 const STATUS_COLOR = {
   pending: 'bg-slate-700 text-slate-300',
@@ -41,6 +63,12 @@ const PAGE_SIZE = 20;
 const EMPTY_MODAL = { open: false, mode: 'create', defaultType: 'manual', initialValues: null };
 const ACTIVE_PIPELINE_STATUSES = ['discovering', 'enriching', 'classifying', 'scoring', 'generating'];
 
+const AI_PROVIDER_BADGE = {
+  gemini:   { label: '✨ Gemini',   cls: 'bg-violet-900/50 text-violet-300 border border-violet-800' },
+  groq:     { label: '⚡ Groq',     cls: 'bg-orange-900/50 text-orange-300 border border-orange-800' },
+  fallback: { label: '⚠ Fallback', cls: 'bg-amber-900/50 text-amber-300 border border-amber-800' },
+};
+
 export default function CampaignsPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -54,10 +82,24 @@ export default function CampaignsPage() {
   const [listModal, setListModal] = useState(EMPTY_MODAL);
   const [showAddProspect, setShowAddProspect] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  // Campaign settings tab
+  const [campaignTab, setCampaignTab] = useState('prospects'); // 'prospects' | 'settings'
+  const [campaignSettings, setCampaignSettings] = useState({
+    campaignDescription: '',
+    targetEcosystemContext: '',
+    targetPersonas: [],
+    preferredAiModel: 'auto',
+  });
+  const [customPersonaInput, setCustomPersonaInput] = useState('');
 
   const activeListId = searchParams.get('list');
   const activeView = activeListId ? { kind: 'list', id: activeListId } : { kind: 'all' };
   const isAllCampaignsSource = !activeListId;
+
+  // Reset to prospects tab when switching campaigns
+  useEffect(() => {
+    setCampaignTab('prospects');
+  }, [activeListId]);
 
   const listsQuery = useQuery({
     queryKey: ['prospect-lists'],
@@ -87,6 +129,8 @@ export default function CampaignsPage() {
     keepPreviousData: true,
   });
 
+
+
   const retryMutation = useMutation({
     mutationFn: (id) => api.post(`/prospects/${id}/retry`),
     onSuccess: () => {
@@ -106,6 +150,17 @@ export default function CampaignsPage() {
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to pause pipeline'),
   });
 
+  const pauseCampaignMutation = useMutation({
+    mutationFn: (id) => api.post(`/prospect-lists/${id}/pause`),
+    onSuccess: (response) => {
+      toast.success(response.data.message || 'Campaign paused');
+      queryClient.invalidateQueries({ queryKey: ['prospect-lists'] });
+      queryClient.invalidateQueries({ queryKey: ['prospect-list'] });
+      queryClient.invalidateQueries({ queryKey: ['prospects'] });
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to pause campaign'),
+  });
+
   const resumeMutation = useMutation({
     mutationFn: (id) => api.post(`/prospects/${id}/resume`),
     onSuccess: (response) => {
@@ -114,6 +169,17 @@ export default function CampaignsPage() {
       queryClient.invalidateQueries({ queryKey: ['prospect-list'] });
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to resume pipeline'),
+  });
+
+  const resumeCampaignMutation = useMutation({
+    mutationFn: (id) => api.post(`/prospect-lists/${id}/resume`),
+    onSuccess: (response) => {
+      toast.success(response.data.message || 'Campaign resumed');
+      queryClient.invalidateQueries({ queryKey: ['prospect-lists'] });
+      queryClient.invalidateQueries({ queryKey: ['prospect-list'] });
+      queryClient.invalidateQueries({ queryKey: ['prospects'] });
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to resume campaign'),
   });
 
   const createListMutation = useMutation({
@@ -164,6 +230,16 @@ export default function CampaignsPage() {
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to add prospects to campaign'),
   });
 
+  const saveCampaignSettingsMutation = useMutation({
+    mutationFn: ({ id, settings }) => api.patch(`/prospect-lists/${id}`, settings).then((r) => r.data.data),
+    onSuccess: () => {
+      toast.success('Campaign settings saved');
+      queryClient.invalidateQueries({ queryKey: ['prospect-lists'] });
+      queryClient.invalidateQueries({ queryKey: ['prospect-list', activeView.id] });
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to save campaign settings'),
+  });
+
   const removeFromListMutation = useMutation({
     mutationFn: ({ listId, prospectIds }) =>
       api.delete(`/prospect-lists/${listId}/prospects`, { data: { prospectIds } }),
@@ -192,6 +268,18 @@ export default function CampaignsPage() {
     ? 'Create campaigns and assign prospects to each one.'
     : `${total} prospect${total === 1 ? '' : 's'} in this campaign`;
   const currentListFilters = activeList?.filters || { search: '', status: '', priority: '' };
+
+  // Populate campaign settings form when campaign data loads
+  useEffect(() => {
+    if (activeListData) {
+      setCampaignSettings({
+        campaignDescription: activeListData.campaignDescription || '',
+        targetEcosystemContext: activeListData.targetEcosystemContext || '',
+        targetPersonas: activeListData.targetPersonas || [],
+        preferredAiModel: activeListData.preferredAiModel || 'auto',
+      });
+    }
+  }, [activeListData]);
 
   const handleSearch = (val) => {
     setSearch(val);
@@ -286,9 +374,11 @@ export default function CampaignsPage() {
     removeFromListMutation.mutate({ listId: activeView.id, prospectIds: selectedIds });
   };
 
-  const handleManualProspectCreated = (prospect) => {
-    if (!activeList?._id || activeList.type !== 'manual') return;
-    addToListMutation.mutate({ listId: activeList._id, prospectIds: [prospect._id] });
+  const handleManualProspectCreated = () => {
+    // The AddProspectModal now uses the atomic /add-and-create endpoint when inside a campaign,
+    // so we only need to refresh queries — no additional addToList call needed.
+    queryClient.invalidateQueries({ queryKey: ['prospect-list', activeView.id] });
+    queryClient.invalidateQueries({ queryKey: ['prospect-lists'] });
   };
 
   const refreshCampaignData = () => {
@@ -424,6 +514,20 @@ export default function CampaignsPage() {
                 >
                   <LinkIcon size={15} /> Import from URL
                 </button>
+                <button
+                  onClick={() => pauseCampaignMutation.mutate(activeList._id)}
+                  disabled={pauseCampaignMutation.isPending}
+                  className="flex items-center gap-2 px-4 py-2 bg-amber-950/60 hover:bg-amber-900/60 text-amber-300 rounded-lg text-sm transition disabled:opacity-60"
+                >
+                  <Pause size={15} /> Pause
+                </button>
+                <button
+                  onClick={() => resumeCampaignMutation.mutate(activeList._id)}
+                  disabled={resumeCampaignMutation.isPending}
+                  className="flex items-center gap-2 px-4 py-2 bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-300 rounded-lg text-sm transition disabled:opacity-60"
+                >
+                  <Play size={15} /> Resume
+                </button>
               </>
             )}
             {activeView.kind === 'list' && (
@@ -446,6 +550,33 @@ export default function CampaignsPage() {
           </div>
         </div>
 
+        {/* Tab switcher — only shown when inside a campaign */}
+        {!isAllCampaignsSource && (
+          <div className="flex items-center gap-1 border-b border-slate-800">
+            <button
+              onClick={() => setCampaignTab('prospects')}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition ${
+                campaignTab === 'prospects'
+                  ? 'border-indigo-500 text-indigo-400'
+                  : 'border-transparent text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              <Users size={14} /> Prospects
+            </button>
+            <button
+              onClick={() => setCampaignTab('settings')}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition ${
+                campaignTab === 'settings'
+                  ? 'border-indigo-500 text-indigo-400'
+                  : 'border-transparent text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              <Settings2 size={14} /> Campaign Settings
+            </button>
+          </div>
+        )}
+
+        {(isAllCampaignsSource || campaignTab === 'prospects') && (
         <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4 space-y-4">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -532,8 +663,32 @@ export default function CampaignsPage() {
                 : 'This campaign stores prospect references only. You can manually add prospects or import them from a public page URL.'}
             </p>
           )}
-        </div>
 
+          {/* Missing campaign settings warning banner */}
+          {!isAllCampaignsSource && activeList?.type === 'manual' &&
+            (!activeList?.campaignDescription?.trim() || !activeList?.targetEcosystemContext?.trim()) && (
+            <div className="flex items-start gap-3 rounded-xl border border-amber-800/50 bg-amber-950/20 px-4 py-3">
+              <AlertTriangle size={15} className="text-amber-400 mt-0.5 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-amber-300 text-xs font-semibold">Campaign settings required</p>
+                <p className="text-amber-400/80 text-xs mt-0.5 leading-relaxed">
+                  Fill in <strong>Campaign Description</strong> and <strong>Target Ecosystem</strong> in
+                  the{' '}
+                  <button
+                    onClick={() => setCampaignTab('settings')}
+                    className="underline hover:text-amber-200 transition"
+                  >
+                    Campaign Settings tab
+                  </button>{' '}
+                  before the AI pipeline can discover or enrich prospects.
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+        )}
+
+        {(isAllCampaignsSource || campaignTab === 'prospects') && (
         <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
           <table className="w-full text-sm">
             <thead>
@@ -546,7 +701,7 @@ export default function CampaignsPage() {
                     onChange={toggleSelectAll}
                   />
                 </th>
-                {['Name', 'Company', 'Role', 'Score', 'Priority', 'Status', ''].map((heading) => (
+                {['Name', 'Company', 'Role', 'Score', 'Priority', 'Status', 'AI', ''].map((heading) => (
                   <th key={heading} className="text-left text-slate-500 font-medium px-4 py-3 text-xs uppercase tracking-wide">
                     {heading}
                   </th>
@@ -602,6 +757,15 @@ export default function CampaignsPage() {
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLOR[prospect.pipelineStatus] || ''}`}>
                         {prospect.pipelineStatus}
                       </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {prospect.aiProviderUsed && AI_PROVIDER_BADGE[prospect.aiProviderUsed] ? (
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${AI_PROVIDER_BADGE[prospect.aiProviderUsed].cls}`}>
+                          {AI_PROVIDER_BADGE[prospect.aiProviderUsed].label}
+                        </span>
+                      ) : (
+                        <span className="text-slate-600 text-xs">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
@@ -705,6 +869,250 @@ export default function CampaignsPage() {
             </div>
           )}
         </div>
+        )}
+
+        {/* Campaign Settings Panel */}
+        {!isAllCampaignsSource && campaignTab === 'settings' && (
+          <div className="space-y-6">
+            {/* Campaign & Outreach Goal Configurator */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4 relative overflow-hidden group">
+              <div className="absolute -right-16 -top-16 w-32 h-32 bg-indigo-500/5 rounded-full blur-2xl group-hover:bg-indigo-500/10 transition-all" />
+              <h2 className="text-white font-semibold text-base flex items-center gap-2 border-b border-slate-800 pb-3">
+                <Sparkles size={18} className="text-indigo-400" />
+                Campaign &amp; Outreach Goal Configurator
+              </h2>
+              <div className="bg-indigo-950/20 border border-indigo-900/40 rounded-lg p-3 text-xs text-indigo-300 leading-relaxed">
+                <strong>How this works:</strong> Describe what you want from this campaign in natural language. The AI will dynamically evaluate each prospect based on their persona (Talent, CEO, Recruiter, etc.) and your campaign goals. Changing this description updates the AI scoring logic instantly for your next pipeline run!
+              </div>
+              <div>
+                <label className="block text-slate-400 text-xs font-semibold uppercase tracking-wider mb-2">
+                  Campaign Description &amp; Goals
+                </label>
+                <textarea
+                  value={campaignSettings.campaignDescription}
+                  onChange={(e) => setCampaignSettings((prev) => ({ ...prev, campaignDescription: e.target.value }))}
+                  rows={6}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg p-4 text-slate-200 text-sm focus:outline-none focus:border-indigo-500 transition resize-none placeholder-slate-500"
+                  placeholder="Example: We are GoodHive.io. Our goal is to reach out to top Rust/Solana developers to join our talent pool, and we want to reach out to web3 startup CEOs to sell our recruiting services..."
+                />
+              </div>
+            </div>
+
+            {/* Target Personas Selector */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
+              <h2 className="text-white font-semibold text-base flex items-center gap-2 border-b border-slate-800 pb-3">
+                <UserCheck size={18} className="text-indigo-400" />
+                Target Personas
+              </h2>
+              <div className="bg-indigo-950/20 border border-indigo-900/40 rounded-lg p-3 text-xs text-indigo-300 leading-relaxed">
+                <strong>Who are you targeting?</strong> Select one or more personas that describe your ideal
+                prospects in this campaign. The AI uses these to calibrate scoring and outreach tone.
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {PREDEFINED_PERSONAS.map((persona) => {
+                  const isSelected = campaignSettings.targetPersonas.includes(persona);
+                  return (
+                    <button
+                      key={persona}
+                      type="button"
+                      onClick={() =>
+                        setCampaignSettings((prev) => ({
+                          ...prev,
+                          targetPersonas: isSelected
+                            ? prev.targetPersonas.filter((p) => p !== persona)
+                            : [...prev.targetPersonas, persona],
+                        }))
+                      }
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
+                        isSelected
+                          ? 'bg-indigo-600/30 border-indigo-500 text-indigo-200'
+                          : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-indigo-700 hover:text-slate-200'
+                      }`}
+                    >
+                      {isSelected ? '✓ ' : ''}{persona}
+                    </button>
+                  );
+                })}
+              </div>
+              {/* Custom persona input */}
+              <div className="flex gap-2 mt-2">
+                <input
+                  type="text"
+                  value={customPersonaInput}
+                  onChange={(e) => setCustomPersonaInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      const val = customPersonaInput.trim();
+                      if (val && !campaignSettings.targetPersonas.includes(val)) {
+                        setCampaignSettings((prev) => ({ ...prev, targetPersonas: [...prev.targetPersonas, val] }));
+                      }
+                      setCustomPersonaInput('');
+                    }
+                  }}
+                  placeholder="Add custom persona (press Enter)…"
+                  className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 text-sm focus:outline-none focus:border-indigo-500 transition placeholder-slate-600"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const val = customPersonaInput.trim();
+                    if (val && !campaignSettings.targetPersonas.includes(val)) {
+                      setCampaignSettings((prev) => ({ ...prev, targetPersonas: [...prev.targetPersonas, val] }));
+                    }
+                    setCustomPersonaInput('');
+                  }}
+                  className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-sm transition"
+                >
+                  Add
+                </button>
+              </div>
+              {/* Show any custom personas that are selected but not in the predefined list */}
+              {campaignSettings.targetPersonas.filter((p) => !PREDEFINED_PERSONAS.includes(p)).length > 0 && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <span className="text-slate-600 text-xs self-center">Custom:</span>
+                  {campaignSettings.targetPersonas
+                    .filter((p) => !PREDEFINED_PERSONAS.includes(p))
+                    .map((persona) => (
+                      <button
+                        key={persona}
+                        type="button"
+                        onClick={() =>
+                          setCampaignSettings((prev) => ({
+                            ...prev,
+                            targetPersonas: prev.targetPersonas.filter((p) => p !== persona),
+                          }))
+                        }
+                        className="px-3 py-1.5 rounded-full text-xs font-medium border bg-teal-600/20 border-teal-600/50 text-teal-300 hover:bg-red-900/30 hover:border-red-700 hover:text-red-300 transition-all"
+                      >
+                        {persona} ✕
+                      </button>
+                    ))}
+                </div>
+              )}
+            </div>
+
+            {/* AI Pipeline Preferences */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
+              <h2 className="text-white font-semibold text-base flex items-center gap-2 border-b border-slate-800 pb-3">
+                <Zap size={18} className="text-indigo-400" />
+                AI Pipeline Preferences
+              </h2>
+              <div className="bg-indigo-950/20 border border-indigo-900/40 rounded-lg p-3 text-xs text-indigo-300 leading-relaxed">
+                <strong>Target Ecosystem / Context:</strong> Describe the ecosystem, industry, or technical context of your target prospects in natural language. The AI will use this to better evaluate and score candidates for this specific campaign.
+              </div>
+              <div>
+                <label className="block text-slate-400 text-xs font-semibold uppercase tracking-wider mb-2">
+                  Target Ecosystem &amp; Context
+                </label>
+                <textarea
+                  value={campaignSettings.targetEcosystemContext}
+                  onChange={(e) => setCampaignSettings((prev) => ({ ...prev, targetEcosystemContext: e.target.value }))}
+                  rows={5}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg p-4 text-slate-200 text-sm focus:outline-none focus:border-indigo-500 transition resize-none placeholder-slate-500"
+                  placeholder="Example: We focus on Web3-native companies (Solidity, Rust, DAO tooling). Prioritize candidates with DeFi protocol experience or L2 infrastructure work. For business targets, focus on early-stage web3 startups with recent funding..."
+                />
+              </div>
+            </div>
+
+            {/* AI Model Preference */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
+              <h2 className="text-white font-semibold text-base flex items-center gap-2 border-b border-slate-800 pb-3">
+                <Zap size={18} className="text-indigo-400" />
+                AI Model Preference
+              </h2>
+              <div className="bg-indigo-950/20 border border-indigo-900/40 rounded-lg p-3 text-xs text-indigo-300 leading-relaxed">
+                <strong>Which AI reads the scraped data?</strong> Choose the primary model for this campaign's pipeline runs. If the preferred model fails, the system automatically falls back to the next available provider.
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {[
+                  {
+                    value: 'auto',
+                    label: 'Auto',
+                    emoji: '⚡',
+                    description: 'Groq first, Gemini fallback',
+                    accent: 'indigo',
+                  },
+                  {
+                    value: 'gemini',
+                    label: 'Gemini',
+                    emoji: '✨',
+                    description: 'Google Gemini first, Groq fallback',
+                    accent: 'violet',
+                  },
+                  {
+                    value: 'groq',
+                    label: 'Groq',
+                    emoji: '🔥',
+                    description: 'Groq only (no Gemini fallback)',
+                    accent: 'orange',
+                  },
+                ].map(({ value, label, emoji, description, accent }) => {
+                  const isSelected = campaignSettings.preferredAiModel === value;
+                  const accentClasses = {
+                    indigo: isSelected
+                      ? 'border-indigo-500 bg-indigo-950/50 shadow-indigo-950/30'
+                      : 'border-slate-700 hover:border-indigo-700',
+                    violet: isSelected
+                      ? 'border-violet-500 bg-violet-950/50 shadow-violet-950/30'
+                      : 'border-slate-700 hover:border-violet-700',
+                    orange: isSelected
+                      ? 'border-orange-500 bg-orange-950/50 shadow-orange-950/30'
+                      : 'border-slate-700 hover:border-orange-700',
+                  };
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setCampaignSettings((prev) => ({ ...prev, preferredAiModel: value }))}
+                      className={`relative flex flex-col items-start gap-1.5 p-4 rounded-xl border-2 transition-all duration-150 shadow-lg text-left cursor-pointer ${
+                        accentClasses[accent]
+                      }`}
+                    >
+                      {isSelected && (
+                        <div className="absolute top-2 right-2 w-4 h-4 rounded-full bg-white/10 flex items-center justify-center">
+                          <div className={`w-2 h-2 rounded-full ${
+                            accent === 'indigo' ? 'bg-indigo-400' :
+                            accent === 'violet' ? 'bg-violet-400' : 'bg-orange-400'
+                          }`} />
+                        </div>
+                      )}
+                      <span className="text-xl leading-none">{emoji}</span>
+                      <span className={`text-sm font-semibold ${
+                        isSelected
+                          ? accent === 'indigo' ? 'text-indigo-300' :
+                            accent === 'violet' ? 'text-violet-300' : 'text-orange-300'
+                          : 'text-slate-200'
+                      }`}>{label}</span>
+                      <span className="text-xs text-slate-400 leading-tight">{description}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Save button */}
+            <div className="flex justify-end">
+              <button
+                onClick={() =>
+                  saveCampaignSettingsMutation.mutate({
+                    id: activeView.id,
+                    settings: campaignSettings,
+                  })
+                }
+                disabled={saveCampaignSettingsMutation.isPending}
+                className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium rounded-xl text-sm transition shadow-lg shadow-indigo-950/45 cursor-pointer"
+              >
+                {saveCampaignSettingsMutation.isPending ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <Save size={16} />
+                )}
+                Save Campaign Settings
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {listModal.open && (
@@ -725,6 +1133,12 @@ export default function CampaignsPage() {
         <AddProspectModal
           onClose={() => setShowAddProspect(false)}
           onCreated={handleManualProspectCreated}
+          campaignContext={{
+            campaignId: activeList._id,
+            hasCampaignSettings:
+              Boolean(activeList.campaignDescription?.trim()) &&
+              Boolean(activeList.targetEcosystemContext?.trim()),
+          }}
         />
       )}
       {showImportModal && activeList?.type === 'manual' && (

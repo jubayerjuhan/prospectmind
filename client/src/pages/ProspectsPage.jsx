@@ -19,6 +19,12 @@ const STATUS_COLOR = {
   paused: 'bg-amber-900/50 text-amber-300',
 };
 
+const AI_PROVIDER_BADGE = {
+  gemini: { label: '✨ Gemini', cls: 'bg-violet-900/50 text-violet-300 border border-violet-800' },
+  groq:   { label: '⚡ Groq',   cls: 'bg-orange-900/50 text-orange-300 border border-orange-800' },
+  fallback: { label: '⚠ Fallback', cls: 'bg-amber-900/50 text-amber-300 border border-amber-800' },
+};
+
 const PRIORITY_COLOR = { high: 'text-green-400', medium: 'text-yellow-400', low: 'text-slate-500' };
 const PRIORITY_OPTIONS = ['high', 'medium', 'low'];
 const PAGE_SIZE = 20;
@@ -130,7 +136,7 @@ export default function ProspectsPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-800">
-              {['Name', 'Company', 'Role', 'Score', 'Priority', 'Status', ''].map((heading) => (
+              {['Name', 'Company', 'Role', 'Score', 'Priority', 'Status', 'AI', ''].map((heading) => (
                 <th key={heading} className="text-left text-slate-500 font-medium px-4 py-3 text-xs uppercase tracking-wide">
                   {heading}
                 </th>
@@ -141,9 +147,9 @@ export default function ProspectsPage() {
             {isLoading ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <tr key={i}>
-                  {Array.from({ length: 7 }).map((__, j) => (
+                  {Array.from({ length: 8 }).map((__, j) => (
                     <td key={j} className="px-4 py-3">
-                      <div className="h-4 bg-slate-800 rounded animate-pulse" style={{ width: j === 6 ? 24 : '80%' }} />
+                      <div className="h-4 bg-slate-800 rounded animate-pulse" style={{ width: j === 7 ? 24 : '80%' }} />
                     </td>
                   ))}
                 </tr>
@@ -181,6 +187,15 @@ export default function ProspectsPage() {
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLOR[prospect.pipelineStatus] || ''}`}>
                       {prospect.pipelineStatus}
                     </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    {prospect.aiProviderUsed && AI_PROVIDER_BADGE[prospect.aiProviderUsed] ? (
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${AI_PROVIDER_BADGE[prospect.aiProviderUsed].cls}`}>
+                        {AI_PROVIDER_BADGE[prospect.aiProviderUsed].label}
+                      </span>
+                    ) : (
+                      <span className="text-slate-600 text-xs">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">

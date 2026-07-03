@@ -80,6 +80,7 @@ const enrichedProfileSchema = new mongoose.Schema(
 const outreachMessageSchema = new mongoose.Schema(
   {
     channel: { type: String, enum: ['email', 'linkedin', 'x', 'telegram'] },
+    persona: String,
     subject: String, // for email
     body: { type: String, required: true },
     status: { type: String, enum: ['draft', 'approved', 'sent', 'replied', 'rejected'], default: 'draft' },
@@ -100,6 +101,7 @@ const prospectSchema = new mongoose.Schema(
     lastName: String,
     company: String,
     typeHint: { type: String, enum: ['talent', 'client', 'unknown'], default: 'unknown' },
+    description: { type: String, default: '' }, // Optional user-provided context fed into the AI pipeline
 
     // Raw contact hints (may be incomplete)
     rawEmail: String,
@@ -137,9 +139,10 @@ const prospectSchema = new mongoose.Schema(
     compatibilityScore: { type: Number, min: 0, max: 100 },
     scoreLabel: {
       type: String,
-      enum: ['strong_talent_match', 'high_potential_client', 'strategic_advisor', 'low_priority', 'not_relevant'],
+      enum: ['strong_talent_match', 'high_potential_client', 'strategic_advisor', 'influential_voice', 'low_priority', 'not_relevant'],
     },
     scoreReasoning: String,
+    scoreBreakdown: mongoose.Schema.Types.Mixed,
     outreachPriority: { type: String, enum: ['high', 'medium', 'low'], default: 'medium' },
 
     // Best contact channel
@@ -151,6 +154,10 @@ const prospectSchema = new mongoose.Schema(
     // Tags for filtering
     tags: [String],
     isArchived: { type: Boolean, default: false },
+    isFallbackData: { type: Boolean, default: false },
+
+    // Which AI provider generated the enrichment data
+    aiProviderUsed: { type: String, enum: ['gemini', 'groq', 'fallback', null], default: null },
   },
   { timestamps: true }
 );

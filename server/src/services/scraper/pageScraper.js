@@ -41,17 +41,21 @@ const scrapeWithPuppeteer = async (url) => {
     });
 
     const { text, links } = await page.evaluate(() => {
+      // Capture ALL external hrefs FIRST — footers often have GitHub/X/Telegram links
+      const links = [...document.querySelectorAll('a[href]')]
+        .map(a => a.href)
+        .filter(href => 
+          (href.startsWith('http') || href.startsWith('mailto:')) && 
+          !href.includes(window.location.hostname)
+        );
+
+      // Now remove boilerplate for the text extraction
       ['script', 'style', 'nav', 'footer'].forEach(tag =>
         document.querySelectorAll(tag).forEach(el => el.remove())
       );
-      const cleaned = document.body.innerText.replace(/\s+/g, ' ').slice(0, 1500);
+      const cleaned = document.body.innerText.replace(/\s+/g, ' ').slice(0, 6000);
 
-      // Capture ALL external hrefs — footers often have GitHub/X/Telegram links
-      const links = [...document.querySelectorAll('a[href]')]
-        .map(a => a.href)
-        .filter(href => href.startsWith('http') && !href.includes(window.location.hostname));
-
-      return { text, links };
+      return { text: cleaned, links };
     });
 
     await browser.close();

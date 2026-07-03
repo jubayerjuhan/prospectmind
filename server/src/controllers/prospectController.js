@@ -1,8 +1,9 @@
 import Prospect from '../models/Prospect.js';
-import { runPipeline } from '../services/pipeline/runner.js';
+import { queuePipelineRun } from '../services/pipeline/queue.js';
 import { sendOutreachEmail } from '../services/resend/emailService.js';
 import { generateOutreachMessages } from '../services/pipeline/outreach.js';
 import { buildProspectFilter } from '../utils/buildProspectFilter.js';
+import { checkCampaignGate } from '../utils/campaignGate.js';
 
 const ACTIVE_PIPELINE_STATUSES = ['discovering', 'enriching', 'classifying', 'scoring', 'generating'];
 
@@ -64,11 +65,43 @@ export const createProspect = async (req, res) => {
     });
 
     // Kick off pipeline async (don't await)
-    runPipeline(prospect._id).catch((err) =>
-      console.error(`Pipeline error for ${prospect._id}:`, err.message)
+    queuePipelineRun(prospect._id).catch((err) =>
+      console.error(`Queue error for ${prospect._id}:`, err.message)
     );
 
     res.status(201).json({ success: true, data: prospect });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// PATCH /api/prospects/:id
+export const updateProspect = async (req, res) => {
+  try {
+    const EDITABLE_FIELDS = ['description', 'typeHint', 'rawEmail', 'rawLinkedin', 'rawX', 'rawTelegram', 'rawGithub'];
+    const updates = {};
+
+    for (const field of EDITABLE_FIELDS) {
+      if (req.body[field] !== undefined) {
+        updates[field] = typeof req.body[field] === 'string' ? req.body[field].trim() : req.body[field];
+      }
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ success: false, message: 'No editable fields provided.' });
+    }
+
+    const prospect = await Prospect.findOneAndUpdate(
+      { _id: req.params.id, organization: req.organization._id },
+      { $set: updates },
+      { new: true }
+    );
+
+    if (!prospect) {
+      return res.status(404).json({ success: false, message: 'Prospect not found.' });
+    }
+
+    res.json({ success: true, data: prospect });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -99,9 +132,9 @@ export const bulkCreateProspects = async (req, res) => {
     const created = await Prospect.insertMany(toCreate);
 
     // Fire pipeline for each
-    created.forEach((p) =>
-      runPipeline(p._id).catch((err) => console.error(`Pipeline error for ${p._id}:`, err.message))
-    );
+    created.forEach((p) => {
+      queuePipelineRun(p._id).catch((err) => console.error(`Queue error for ${p._id}:`, err.message))
+    });
 
     res.status(201).json({
       success: true,
@@ -118,13 +151,25 @@ export const retryPipeline = async (req, res) => {
     const prospect = await Prospect.findOne({ _id: req.params.id, organization: req.organization._id });
     if (!prospect) return res.status(404).json({ success: false, message: 'Prospect not found.' });
 
+    // Campaign gate check — block if prospect is in a campaign without settings
+    const gate = await checkCampaignGate(prospect._id, req.organization._id);
+    if (!gate.allowed) {
+      return res.status(400).json({
+        success: false,
+        message: `Campaign "${gate.campaignName}" is missing required settings before the pipeline can run. Please fill in: ${gate.missingFields.join(', ')}.`,
+        code: 'CAMPAIGN_SETTINGS_REQUIRED',
+        campaignId: gate.campaignId,
+        missingFields: gate.missingFields,
+      });
+    }
+
     await Prospect.findByIdAndUpdate(prospect._id, {
       pipelineStatus: 'pending',
       pipelineError: null,
       pipelinePaused: false,
       pipelinePausedAt: null,
     });
-    runPipeline(prospect._id).catch(console.error);
+    queuePipelineRun(prospect._id).catch(console.error);
 
     res.json({ success: true, message: 'Pipeline restarted.' });
   } catch (error) {
@@ -170,6 +215,18 @@ export const resumePipeline = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Pipeline is not paused.' });
     }
 
+    // Campaign gate check — block if prospect is in a campaign without settings
+    const gate = await checkCampaignGate(prospect._id, req.organization._id);
+    if (!gate.allowed) {
+      return res.status(400).json({
+        success: false,
+        message: `Campaign "${gate.campaignName}" is missing required settings before the pipeline can run. Please fill in: ${gate.missingFields.join(', ')}.`,
+        code: 'CAMPAIGN_SETTINGS_REQUIRED',
+        campaignId: gate.campaignId,
+        missingFields: gate.missingFields,
+      });
+    }
+
     await Prospect.findByIdAndUpdate(prospect._id, {
       pipelinePaused: false,
       pipelinePausedAt: null,
@@ -177,8 +234,8 @@ export const resumePipeline = async (req, res) => {
       pipelineError: null,
     });
 
-    runPipeline(prospect._id).catch((err) =>
-      console.error(`Pipeline error for ${prospect._id}:`, err.message)
+    queuePipelineRun(prospect._id).catch((err) =>
+      console.error(`Queue error for ${prospect._id}:`, err.message)
     );
 
     res.json({

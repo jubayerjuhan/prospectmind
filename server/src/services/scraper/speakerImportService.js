@@ -580,6 +580,73 @@ const uniqueCandidates = (candidates) => {
 };
 
 export const previewSpeakerImport = async (url) => {
+  if (url.includes('ethcc.io/')) {
+    const editionMatch = url.match(/ethcc-(\d+)/i);
+    const editionId = editionMatch ? `ethcc-${editionMatch[1]}` : 'ethcc-9';
+    try {
+      const inputParam = encodeURIComponent(`{"0":{"json":{"conferenceId":"ethcc","editionId":"${editionId}","limit":500,"sortBy":"randomNumber","sortOrder":"asc","track":"all"}}}`);
+      const apiUrl = `https://ethcc.io/api/trpc/speakersRouter.getAcceptedSpeakers?batch=1&input=${inputParam}`;
+      const response = await fetch(apiUrl, { headers: { 'User-Agent': USER_AGENT } });
+      
+      if (response.ok) {
+        const data = await response.json();
+        const speakers = data[0]?.result?.data?.json?.speakers || [];
+        if (speakers.length > 0) {
+          const trackMap = {
+            unknown: 'The Unexpected',
+            'cypherpunk-privacy': 'Cypherpunk & Privacy',
+            'rwa-tokenisation': 'RWA Tokenisation',
+            'product-marketers': 'Product & Marketers',
+            'regulation-compliance': 'Regulation & Compliance',
+            'core-protocol': 'Core Protocol',
+            'breakout-sessions': 'Breakout Sessions',
+            'built-on-ethereum': 'Built on Ethereum',
+            stablecoins: 'Stablecoins',
+            research: 'Research',
+            security: 'Security',
+            defi: 'DeFi',
+            'defi-day': 'DeFi Day',
+            terse: 'TERSE',
+            'if-you-know-you-know': 'If you know you know',
+            ethstaker: 'EthStaker'
+          };
+
+          const candidates = speakers.map(speaker => {
+            const track = speaker.trackSlug;
+            const role = trackMap[track] || (track ? track.replace(/-/g, ' ').trim() : '');
+            
+            return {
+              sourceKey: buildCandidateKey(speaker.displayName, speaker.organization || '', role),
+              name: speaker.displayName,
+              company: speaker.organization || '',
+              role,
+              socials: mergeSocialProfiles(speaker.socialProfiles || [], url),
+              avatarUrl: speaker.pfp || '',
+              detailText: '',
+              eventContext: {
+                eventName: `EthCC[${editionMatch ? editionMatch[1] : '9'}]`,
+                talkTitle: '',
+                track: role,
+                dateLabel: '',
+                timeLabel: '',
+                stageLabel: '',
+                description: '',
+              },
+              sourceUrl: url,
+            };
+          });
+          
+          return {
+            candidates: uniqueCandidates(candidates),
+            metadata: { sourceUrl: url, strategy: 'trpc-api', totalFound: candidates.length },
+          };
+        }
+      }
+    } catch (err) {
+      console.error('EthCC API fetch error:', err);
+    }
+  }
+
   const response = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
   if (!response.ok) {
     throw new Error(`Failed to fetch page (${response.status}).`);
@@ -587,31 +654,6 @@ export const previewSpeakerImport = async (url) => {
 
   const html = await response.text();
   let initialCandidates = extractCandidatesFromLines(html, url);
-  if (url.includes('ethcc.io/')) {
-    const payloadCandidates = extractEthccCandidatesFromPayload(html, url);
-    if (payloadCandidates.length) {
-      const merged = new Map();
-      [...initialCandidates, ...payloadCandidates].forEach((candidate) => {
-        const key = candidate.sourceKey || buildCandidateKey(candidate.name, candidate.company, candidate.role);
-        const existing = merged.get(key);
-        merged.set(key, existing
-          ? {
-              ...existing,
-              ...candidate,
-              socials: mergeSocialProfiles([], url, { ...existing.socials, ...candidate.socials }),
-              avatarUrl: existing.avatarUrl || candidate.avatarUrl || '',
-            }
-          : candidate);
-      });
-      initialCandidates = [...merged.values()];
-    }
-  }
-  if (!initialCandidates.length && url.includes('ethcc.io/')) {
-    const snapshot = await fetchTextSnapshot(url);
-    if (snapshot) {
-      initialCandidates = extractEthccCandidatesFromSnapshot(snapshot, url);
-    }
-  }
   if (!initialCandidates.length) {
     const snapshot = await fetchTextSnapshot(url);
     if (snapshot) {
@@ -625,11 +667,8 @@ export const previewSpeakerImport = async (url) => {
   const enrichedCandidates = await enrichFromBrowser(url, initialCandidates);
   const strategy = enrichedCandidates.some((candidate) => candidate.detailText)
     ? 'browser-detail'
-    : url.includes('ethcc.io/') && enrichedCandidates.some((candidate) =>
-      candidate.socials?.linkedinUrl || candidate.socials?.xUrl || candidate.socials?.githubUrl
-    )
-      ? 'browser-cards'
-      : 'html-lines';
+    : 'html-lines';
+    
   return {
     candidates: uniqueCandidates(enrichedCandidates),
     metadata: {

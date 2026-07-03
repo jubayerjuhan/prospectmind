@@ -4,7 +4,9 @@
  * Messages must NOT feel AI-generated.
  */
 
-import { askClaude } from '../ai/claudeClient.js';
+import { askAI } from '../ai/claudeClient.js';
+import ProspectList from '../../models/ProspectList.js';
+
 
 const SYSTEM_PROMPT = `You are a master of personalized B2B outreach for a talent intelligence platform called ProspectMind.
 Your messages must feel genuinely human, informed, and relevant.
@@ -28,6 +30,28 @@ export const generateOutreachMessages = async (prospect, enrichedProfile, classi
   const isClient = classification.primaryAngle === 'client';
   const platformContext = isClient ? CLIENT_CONTEXT : TALENT_CONTEXT;
 
+  // Resolve campaign-level settings
+  const campaignList = await ProspectList.findOne({
+    organization: prospect.organization,
+    type: 'manual',
+    isArchived: false,
+    prospects: prospect._id,
+  }).lean();
+
+  const campaignDescription = campaignList?.campaignDescription?.trim() || '';
+  const targetEcosystemContext = campaignList?.targetEcosystemContext?.trim() || '';
+  const targetPersonas = campaignList?.targetPersonas?.length
+    ? `Target Personas: ${campaignList.targetPersonas.join(', ')}`
+    : '';
+
+  const campaignContext = [
+    campaignDescription ? `Campaign Description & Goals: ${campaignDescription}` : '',
+    targetEcosystemContext ? `Target Ecosystem / Context: ${targetEcosystemContext}` : '',
+    targetPersonas,
+  ].filter(Boolean).join('\n');
+
+  const preferredAiModel = campaignList?.preferredAiModel || 'auto';
+
   const availableChannels = [];
   if (enrichedProfile.email) availableChannels.push('email');
   if (enrichedProfile.linkedinUrl) availableChannels.push('linkedin');
@@ -36,10 +60,13 @@ export const generateOutreachMessages = async (prospect, enrichedProfile, classi
 
   if (availableChannels.length === 0) availableChannels.push('email', 'linkedin');
 
-  const userPrompt = `Generate personalized outreach messages for this prospect.
+  const userPrompt = `Generate personalized outreach messages for this prospect, tailored to each of their possible personas.
+
+Campaign Context:
+${campaignContext || 'None provided'}
 
 Prospect: ${prospect.firstName} ${prospect.lastName || ''} @ ${prospect.company || 'Unknown'}
-Role: ${classification.primaryAngle} ${classification.secondaryAngle ? `(also: ${classification.secondaryAngle})` : ''}
+Personas: ${classification.roleClassification?.join(', ') || classification.primaryAngle}
 Compatibility score: ${scoring.compatibilityScore}/100
 Best channel: ${scoring.bestContactChannel}
 
@@ -62,33 +89,45 @@ Rules for every message:
 4. End with a soft, non-pushy CTA
 5. No generic openers like "I came across your profile" or "Hope this finds you well"
 6. Reference their specific ecosystem/tech when possible
+7. Strongly tailor the message to the specific persona being targeted.
 
-Return JSON with only the channels that are available:
-{
-  "email": {
+Return JSON as an array of message objects. Create 1 message per persona, using their best channel (${scoring.bestContactChannel}) if available, otherwise fallback to email. If email is used, include a subject.
+
+Example JSON structure:
+[
+  {
+    "persona": "advisor",
+    "channel": "email",
     "subject": "compelling subject line",
     "body": "full email body"
   },
-  "linkedin": {
+  {
+    "persona": "founder",
+    "channel": "linkedin",
     "body": "linkedin message"
-  },
-  "x": {
-    "body": "x/twitter DM"
-  },
-  "telegram": {
-    "body": "telegram message"
   }
-}
+]
 
-Only include keys for available channels: ${availableChannels.join(', ')}`;
+Ensure you only use channels from the available channels list: ${availableChannels.join(', ')}`;
 
-  const messages = await askClaude({
+  const { result: messages } = await askAI({
     systemPrompt: SYSTEM_PROMPT,
     userPrompt,
-    maxTokens: 1200,
-  });
+    maxTokens: 1500,
+  }, { preferredProvider: preferredAiModel });
 
-  // Format into message documents
+  // Check if it's an array (new format) or object (fallback)
+  if (Array.isArray(messages)) {
+    return messages.map(msg => ({
+      persona: msg.persona,
+      channel: msg.channel,
+      subject: msg.subject || null,
+      body: msg.body,
+      status: 'draft',
+    }));
+  }
+
+  // Fallback into message documents
   return availableChannels
     .filter((ch) => messages[ch])
     .map((channel) => ({

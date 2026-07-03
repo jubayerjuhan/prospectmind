@@ -10,6 +10,7 @@ const start = async () => {
 
   // Start background jobs
   startUsageResetCron();
+  import('./services/pipeline/queue.js');
 
   app.listen(PORT, () => {
     console.log(`\n🚀 ProspectMind API running on http://localhost:${PORT}`);

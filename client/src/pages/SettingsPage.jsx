@@ -2,17 +2,15 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
-import { Save, Settings, Shield, Zap, Sparkles, Loader2 } from 'lucide-react';
+import { Save, Settings, Shield, Zap, Loader2 } from 'lucide-react';
 
 export default function SettingsPage() {
   const queryClient = useQueryClient();
   
   // Settings local state
   const [name, setName] = useState('');
-  const [defaultEcosystem, setDefaultEcosystem] = useState('web3');
   const [autoEnrich, setAutoEnrich] = useState(false);
   const [outreachReviewRequired, setOutreachReviewRequired] = useState(true);
-  const [campaignDescription, setCampaignDescription] = useState('');
 
   // Fetch organization settings
   const { data: orgData, isLoading } = useQuery({
@@ -25,10 +23,8 @@ export default function SettingsPage() {
     if (orgData) {
       setName(orgData.name || '');
       if (orgData.settings) {
-        setDefaultEcosystem(orgData.settings.defaultEcosystem || 'web3');
         setAutoEnrich(!!orgData.settings.autoEnrich);
         setOutreachReviewRequired(orgData.settings.outreachReviewRequired !== false);
-        setCampaignDescription(orgData.settings.campaignDescription || orgData.settings.icpRules || '');
       }
     }
   }, [orgData]);
@@ -51,10 +47,8 @@ export default function SettingsPage() {
     saveMutation.mutate({
       name,
       settings: {
-        defaultEcosystem,
         autoEnrich,
         outreachReviewRequired,
-        campaignDescription,
       },
     });
   };
@@ -76,7 +70,7 @@ export default function SettingsPage() {
           Organization Settings
         </h1>
         <p className="text-slate-400 mt-1">
-          Configure your workspace, AI pipeline preferences, and target candidate criteria
+          Configure your workspace name and AI pipeline defaults
         </p>
       </div>
 
@@ -103,57 +97,15 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* AI Scoring Configurator (ICP) Card */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4 relative overflow-hidden group">
-          {/* Subtle background glow */}
-          <div className="absolute -right-16 -top-16 w-32 h-32 bg-indigo-500/5 rounded-full blur-2xl group-hover:bg-indigo-500/10 transition-all"></div>
-          
-          <h2 className="text-white font-semibold text-base flex items-center gap-2 border-b border-slate-800 pb-3">
-            <Sparkles size={18} className="text-indigo-400" />
-            Campaign & Outreach Goal Configurator
-          </h2>
-          
-          <div className="bg-indigo-950/20 border border-indigo-900/40 rounded-lg p-3 text-xs text-indigo-300 leading-relaxed">
-            <strong>How this works:</strong> Describe what you want from this campaign in natural language. The AI will dynamically evaluate each prospect based on their persona (Talent, CEO, Recruiter, etc.) and your campaign goals. Changing this description updates the AI scoring logic instantly for your next pipeline run!
-          </div>
-
-          <div>
-            <label className="block text-slate-400 text-xs font-semibold uppercase tracking-wider mb-2">
-              Campaign Description & Goals
-            </label>
-            <textarea
-              value={campaignDescription}
-              onChange={(e) => setCampaignDescription(e.target.value)}
-              rows={6}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg p-4 text-slate-200 text-sm focus:outline-none focus:border-indigo-500 transition resize-none placeholder-slate-500"
-              placeholder="Example: We are GoodHive.io. Our goal is to reach out to top Rust/Solana developers to join our talent pool, and we want to reach out to web3 startup CEOs to sell our recruiting services..."
-            />
-          </div>
-        </div>
-
         {/* Pipeline Preferences Card */}
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-5">
           <h2 className="text-white font-semibold text-base flex items-center gap-2 border-b border-slate-800 pb-3">
             <Zap size={18} className="text-indigo-400" />
-            AI Pipeline Preferences
+            AI Pipeline Defaults
           </h2>
 
-          {/* Ecosystem Choice */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-slate-400 text-xs font-semibold uppercase tracking-wider mb-2">
-                Default Target Ecosystem
-              </label>
-              <select
-                value={defaultEcosystem}
-                onChange={(e) => setDefaultEcosystem(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-slate-200 text-sm focus:outline-none focus:border-indigo-500 transition"
-              >
-                <option value="web3">Web3 Native (Solidity, Rust, DAOs)</option>
-                <option value="web2">Web2 / Standard Tech Stack</option>
-                <option value="any">General Technical / Mixed</option>
-              </select>
-            </div>
+          <div className="bg-indigo-950/20 border border-indigo-900/40 rounded-lg p-3 text-xs text-indigo-300 leading-relaxed">
+            <strong>Note:</strong> Campaign-specific goals and ecosystem context are now configured <strong>per-campaign</strong> inside the Campaigns page. The settings below apply globally across all pipeline runs.
           </div>
 
           <div className="space-y-3 pt-2">
