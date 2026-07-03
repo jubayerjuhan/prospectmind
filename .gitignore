@@ -7,3 +7,7 @@ dist/
 logs/
 .linkedin-session.json
 .vercel
+
+# Invoices
+server/Invoice_June_2026.pdf
+*.pdf
