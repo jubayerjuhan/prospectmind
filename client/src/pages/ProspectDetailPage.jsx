@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import EditProspectModal from '../components/prospects/EditProspectModal';
 
-const ACTIVE_PIPELINE_STATUSES = ['discovering', 'enriching', 'classifying', 'scoring', 'generating'];
+const ACTIVE_PIPELINE_STATUSES = ['pending', 'discovering', 'enriching', 'classifying', 'scoring', 'generating'];
 
 /* ── Skeleton helpers ─────────────────────────────────────────────── */
 const Sk = ({ className }) => (

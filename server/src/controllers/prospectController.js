@@ -5,7 +5,7 @@ import { generateOutreachMessages } from '../services/pipeline/outreach.js';
 import { buildProspectFilter } from '../utils/buildProspectFilter.js';
 import { checkCampaignGate } from '../utils/campaignGate.js';
 
-const ACTIVE_PIPELINE_STATUSES = ['discovering', 'enriching', 'classifying', 'scoring', 'generating'];
+const ACTIVE_PIPELINE_STATUSES = ['pending', 'discovering', 'enriching', 'classifying', 'scoring', 'generating'];
 
 // GET /api/prospects
 export const getProspects = async (req, res) => {

@@ -61,7 +61,7 @@ const PRIORITY_COLOR = { high: 'text-green-400', medium: 'text-yellow-400', low:
 const PRIORITY_OPTIONS = ['high', 'medium', 'low'];
 const PAGE_SIZE = 20;
 const EMPTY_MODAL = { open: false, mode: 'create', defaultType: 'manual', initialValues: null };
-const ACTIVE_PIPELINE_STATUSES = ['discovering', 'enriching', 'classifying', 'scoring', 'generating'];
+const ACTIVE_PIPELINE_STATUSES = ['pending', 'discovering', 'enriching', 'classifying', 'scoring', 'generating'];
 
 const AI_PROVIDER_BADGE = {
   gemini:   { label: '✨ Gemini',   cls: 'bg-violet-900/50 text-violet-300 border border-violet-800' },
