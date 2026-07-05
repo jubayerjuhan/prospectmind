@@ -10,8 +10,10 @@ import { queuePipelineRun } from './queue.js';
 import { searchRepositories, fetchContributors, fetchUserProfile, buildProspectData } from '../scraper/githubTalentScraper.js';
 
 // Initialize Redis connection for BullMQ
-const connection = new Redis(process.env.REDIS_URL || 'redis://127.0.0.1:6379', {
+const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+const connection = new Redis(redisUrl, {
   maxRetriesPerRequest: null,
+  tls: redisUrl.includes('upstash.io') || redisUrl.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
 });
 
 export const githubTalentQueue = new Queue('githubTalentQueue', { connection });

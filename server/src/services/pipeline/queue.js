@@ -4,8 +4,10 @@ import { runPipeline } from './runner.js';
 import 'dotenv/config';
 
 // Initialize Redis connection for BullMQ (maxRetriesPerRequest must be null)
-const connection = new Redis(process.env.REDIS_URL || 'redis://127.0.0.1:6379', {
+const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+const connection = new Redis(redisUrl, {
   maxRetriesPerRequest: null,
+  tls: redisUrl.includes('upstash.io') || redisUrl.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
 });
 
 // Create the queue
