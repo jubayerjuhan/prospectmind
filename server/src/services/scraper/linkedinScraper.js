@@ -53,7 +53,6 @@ const launchBrowser = () =>
       '--disable-setuid-sandbox',
       '--disable-blink-features=AutomationControlled',
       '--disable-dev-shm-usage',
-      '--single-process',
       '--window-size=1280,900',
     ],
   });
@@ -218,16 +217,19 @@ const loginToLinkedIn = async (page) => {
 // ─── Scrape a single page and return cleaned innerText ───────────────────────
 
 const scrapePageText = async (page, url) => {
+  console.log(`[linkedin] ↳ Navigating to ${url}`);
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
   const currentUrl = page.url();
   if (currentUrl.includes('authwall') || currentUrl.includes('login') || currentUrl.includes('checkpoint')) {
+    console.warn(`[linkedin] ↳ Hit authwall/login at ${currentUrl}`);
     return null;
   }
 
   await page.waitForSelector('h1', { timeout: 10000 }).catch(() => {});
 
   // Scroll down slowly to trigger all lazy-loaded sections
+  console.log(`[linkedin] ↳ Scrolling ${url}...`);
   await page.evaluate(async () => {
     for (let i = 0; i < 30; i++) {
       window.scrollBy(0, 400);
@@ -235,6 +237,8 @@ const scrapePageText = async (page, url) => {
     }
   });
   await new Promise(r => setTimeout(r, 2000));
+
+  console.log(`[linkedin] ↳ Extracting text from ${url}...`);
 
   return page.evaluate(() => {
     ['script', 'style', 'nav', 'footer', 'aside'].forEach(s =>
@@ -251,7 +255,7 @@ const scrapeProfilePage = async (page, url) => {
   const mainText = await scrapePageText(page, url);
 
   if (!mainText) {
-    return { text: null, sessionExpired: true };
+    return { text: null, posts: [], sessionExpired: true };
   }
 
   // 2. Also scrape the /details/experience/ sub-page (full timeline with dates)
@@ -263,6 +267,11 @@ const scrapeProfilePage = async (page, url) => {
   const educationUrl = url.replace(/\/$/, '') + '/details/education/';
   const eduText = await scrapePageText(page, educationUrl).catch(() => null);
 
+  // 4. Also scrape /recent-activity/all/ in the SAME browser session
+  // (Running it here avoids a second parallel browser instance that causes
+  //  "Execution context was destroyed" crashes.)
+  const posts = await scrapeActivityPage(page, url).catch(() => []);
+
   // Combine all sections
   const combined = [
     '=== MAIN PROFILE ===',
@@ -273,13 +282,158 @@ const scrapeProfilePage = async (page, url) => {
     eduText || '',
   ].filter(Boolean).join('\n');
 
-  return { text: combined, sessionExpired: false };
+  return { text: combined, posts, sessionExpired: false };
+};
+
+// ─── Activity Feed Scraper ──────────────────────────────────────────────────────
+
+/**
+ * Scrape the prospect's recent LinkedIn activity feed.
+ *
+ * LinkedIn exposes a person's posts at:
+ *   https://www.linkedin.com/in/<handle>/recent-activity/all/
+ *
+ * This page lists posts the person authored with timestamps.
+ * We extract up to MAX_POSTS posts and return them as trimmed text strings.
+ *
+ * @param {import('puppeteer').Page} page - An authenticated Puppeteer page
+ * @param {string} linkedinUrl - Normalized profile URL (no trailing slash)
+ * @returns {Promise<string[]>} Array of post text strings (may be empty)
+ */
+const MAX_ACTIVITY_POSTS = 8;
+
+const scrapeActivityPage = async (page, linkedinUrl) => {
+  const activityUrl = linkedinUrl.replace(/\/$/, '') + '/recent-activity/all/';
+  console.log('[linkedin] Scraping activity feed:', activityUrl);
+
+  try {
+    await page.goto(activityUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+    const currentUrl = page.url();
+    if (
+      currentUrl.includes('authwall') ||
+      currentUrl.includes('login') ||
+      currentUrl.includes('checkpoint')
+    ) {
+      console.warn('[linkedin] Activity feed blocked — not authenticated or challenged');
+      return [];
+    }
+
+    // Scroll to load several posts (lazy-loaded)
+    await page.evaluate(async () => {
+      for (let i = 0; i < 20; i++) {
+        window.scrollBy(0, 500);
+        await new Promise((r) => setTimeout(r, 300));
+      }
+    });
+    await new Promise((r) => setTimeout(r, 2000));
+
+    // Extract post content from the activity feed.
+    // LinkedIn renders each activity item in an <article> or a div with
+    // data-urn attributes. We grab the visible text of each item.
+    const posts = await page.evaluate((maxPosts) => {
+      // Try known containers; LinkedIn changes class names frequently so we
+      // cast a wide net and deduplicate by content.
+      const selectors = [
+        'div[data-urn] .feed-shared-update-v2__description',
+        'div[data-urn] .update-components-text',
+        'article .feed-shared-update-v2__description',
+        'article .update-components-text',
+        '.feed-shared-update-v2__description',
+        '.update-components-text',
+        '[data-finite-scroll-hotkey-item]',
+      ];
+
+      const seen = new Set();
+      const results = [];
+
+      for (const sel of selectors) {
+        if (results.length >= maxPosts) break;
+        document.querySelectorAll(sel).forEach((el) => {
+          if (results.length >= maxPosts) return;
+          const txt = el.innerText?.trim();
+          if (txt && txt.length > 30 && !seen.has(txt)) {
+            seen.add(txt);
+            results.push(txt);
+          }
+        });
+      }
+
+      if (results.length === 0) {
+        document.querySelectorAll('article').forEach((el) => {
+          if (results.length >= maxPosts) return;
+          const txt = el.innerText?.trim();
+          if (txt && txt.length > 40 && !seen.has(txt)) {
+            seen.add(txt);
+            results.push(txt.slice(0, 800));
+          }
+        });
+      }
+
+      return results;
+    }, MAX_ACTIVITY_POSTS);
+
+    const trimmed = posts
+      .map((p) => p.replace(/\n{3,}/g, '\n\n').trim().slice(0, 600))
+      .filter((p) => p.length > 30);
+
+    console.log(`[linkedin] ✅ Activity feed: ${trimmed.length} posts found`);
+    return trimmed;
+  } catch (err) {
+    console.warn('[linkedin] Activity feed scrape failed (non-fatal):', err.message);
+    return [];
+  }
 };
 
 // ─── Main Export ──────────────────────────────────────────────────────────────
 
+/**
+ * Standalone export — scrapes ONLY the activity feed in its own browser session.
+ * Use this only when you already have the profile text and just need posts.
+ * For full pipeline use, call scrapeLinkedIn() which returns both.
+ */
+export const scrapeLinkedInActivity = async (linkedinUrl) => {
+  if (!linkedinUrl) return [];
+
+  const url = linkedinUrl.split('?')[0].replace(/\/$/, '');
+
+  let browser;
+  try {
+    browser = await launchBrowser();
+    const page = await setupPage(browser);
+
+    const savedCookies = loadSession();
+    if (savedCookies) {
+      const cdp = await page.createCDPSession();
+      await cdp.send('Network.setCookies', { cookies: savedCookies });
+    } else {
+      const loggedIn = await loginToLinkedIn(page);
+      if (!loggedIn) {
+        await browser.close();
+        return [];
+      }
+    }
+
+    const posts = await scrapeActivityPage(page, url);
+    await browser.close();
+    return posts;
+  } catch (err) {
+    console.error('[linkedin] scrapeLinkedInActivity error:', err.message);
+    if (browser) await browser.close().catch(() => {});
+    return [];
+  }
+};
+
+/**
+ * Main export — scrapes profile + experience + education + activity feed
+ * all in ONE browser session to avoid parallel-browser context crashes.
+ *
+ * Returns: { text: string|null, posts: string[] }
+ *   text  — combined profile text for the AI enrichment prompt
+ *   posts — array of recent LinkedIn post strings (may be empty)
+ */
 export const scrapeLinkedIn = async (linkedinUrl) => {
-  if (!linkedinUrl) return null;
+  if (!linkedinUrl) return { text: null, posts: [] };
 
   const url = linkedinUrl.split('?')[0].replace(/\/$/, '');
   console.log(`[linkedin] Scraping: ${url}`);
@@ -303,12 +457,12 @@ export const scrapeLinkedIn = async (linkedinUrl) => {
       const loggedIn = await loginToLinkedIn(page);
       if (!loggedIn) {
         await browser.close();
-        return null;
+        return { text: null, posts: [] };
       }
     }
 
-    // ── Scrape the profile ────────────────────────────────────────────────
-    let { text, sessionExpired } = await scrapeProfilePage(page, url);
+    // ── Scrape the profile (+ activity in the same session) ───────────────
+    let { text, posts, sessionExpired } = await scrapeProfilePage(page, url);
 
     // ── Check if we're actually logged in (not just public view) ──────────
     const isLoggedOut = text && (
@@ -322,17 +476,18 @@ export const scrapeLinkedIn = async (linkedinUrl) => {
       const loggedIn = await loginToLinkedIn(page);
       if (!loggedIn) {
         await browser.close();
-        return null;
+        return { text: null, posts: [] };
       }
       const result = await scrapeProfilePage(page, url);
-      text = result.text;
+      text  = result.text;
+      posts = result.posts;
     }
 
     await browser.close();
 
     if (!text || text.length < 200) {
       console.warn('[linkedin] Profile text too short');
-      return null;
+      return { text: null, posts };
     }
 
     // Clean up text
@@ -344,12 +499,12 @@ export const scrapeLinkedIn = async (linkedinUrl) => {
       .replace(/\n{3,}/g, '\n\n')
       .slice(0, 5000);
 
-    console.log(`[linkedin] ✅ Scraped ${cleaned.length} chars`);
-    return cleaned;
+    console.log(`[linkedin] ✅ Scraped ${cleaned.length} chars | ${posts.length} activity posts`);
+    return { text: cleaned, posts };
 
   } catch (err) {
     console.error('[linkedin] Error:', err.message);
     if (browser) await browser.close().catch(() => {});
-    return null;
+    return { text: null, posts: [] };
   }
 };

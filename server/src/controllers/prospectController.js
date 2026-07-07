@@ -326,12 +326,9 @@ export const archiveProspect = async (req, res) => {
 // POST /api/prospects/:id/generate-messages
 export const generateMessages = async (req, res) => {
   try {
+    const { customPrompt } = req.body || {};
     const prospect = await Prospect.findOne({ _id: req.params.id, organization: req.organization._id });
     if (!prospect) return res.status(404).json({ success: false, message: 'Prospect not found.' });
-
-    if (prospect.messages && prospect.messages.length > 0) {
-      return res.status(400).json({ success: false, message: 'Messages already generated for this prospect.' });
-    }
 
     if (prospect.pipelineStatus !== 'ready') {
       return res.status(400).json({ success: false, message: 'Prospect pipeline must be ready before generating messages.' });
@@ -355,7 +352,8 @@ export const generateMessages = async (req, res) => {
         scoreReasoning: prospect.scoreReasoning,
         outreachPriority: prospect.outreachPriority,
         bestContactChannel: prospect.bestContactChannel
-      }
+      },
+      customPrompt
     );
 
     prospect.messages = messages;

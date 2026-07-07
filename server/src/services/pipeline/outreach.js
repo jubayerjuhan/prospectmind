@@ -26,7 +26,7 @@ Positioning: community-powered recruiting, vetted talent, no upfront fee (pay on
 Key value props: access to hidden talent network, community recommendations, high signal.
 Tone: respect their time, lead with relevance, not a sales pitch.`;
 
-export const generateOutreachMessages = async (prospect, enrichedProfile, classification, scoring) => {
+export const generateOutreachMessages = async (prospect, enrichedProfile, classification, scoring, customPrompt = '') => {
   const isClient = classification.primaryAngle === 'client';
   const platformContext = isClient ? CLIENT_CONTEXT : TALENT_CONTEXT;
 
@@ -82,6 +82,7 @@ ${platformContext}
 
 Available channels: ${availableChannels.join(', ')}
 
+${customPrompt ? `=== CUSTOM USER INSTRUCTIONS ===\nThe user has provided specific instructions for this message generation. You MUST follow these instructions closely:\n${customPrompt}\n================================\n` : ''}
 Rules for every message:
 1. Must NOT sound AI-generated
 2. Open with something specific to THEM (their work, project, recent activity)

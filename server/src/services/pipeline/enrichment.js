@@ -49,11 +49,16 @@ const searchGoogle = async (query) => {
 };
 
 const collectSnippets = async (fullName, company) => {
+  const currentYear = new Date().getFullYear();
   const queries = [
     `"${fullName}" site:linkedin.com/in`,
     `"${fullName}" ${company}`,
     `"${fullName}" github`,
     `"${fullName}" web3 OR blockchain OR developer`,
+    // Recent activity: Google-indexed LinkedIn posts (most likely to be current)
+    `"${fullName}" site:linkedin.com/posts`,
+    // Recent talks, announcements, events (scoped to current + last year)
+    `"${fullName}" speaking OR keynote OR announced OR launched ${currentYear} OR ${currentYear - 1}`,
   ];
 
   const allResults = await Promise.all(queries.map((q) => searchGoogle(q)));
@@ -182,11 +187,24 @@ export const enrichProfile = async (prospect, discoveredIdentity, { callAI = ask
 
   console.log(`[enrichment] Starting enrichment for ${fullName}`);
 
-  // ── Step 1: LinkedIn + search snippets in parallel (GitHub comes later) ──
-  const [linkedinText, snippets] = await Promise.all([
+  // ── Step 1: LinkedIn profile+activity + Serper snippets in parallel ────────
+  // scrapeLinkedIn() now runs a single browser session that visits:
+  //   main profile → /details/experience → /details/education → /recent-activity/all
+  // This avoids the "Execution context was destroyed" crash that happened
+  // when two browser instances shared the same CDPSession cookies.
+  const [linkedinResult, snippets] = await Promise.all([
     scrapeLinkedIn(linkedinUrl),
     collectSnippets(fullName, prospect.company || ''),
   ]);
+
+  const linkedinText  = linkedinResult?.text || null;
+  const linkedinPosts = linkedinResult?.posts || [];
+
+  if (linkedinPosts.length > 0) {
+    console.log(`[enrichment] ✅ ${linkedinPosts.length} LinkedIn posts fetched for recent activity`);
+  } else {
+    console.log('[enrichment] ⚠️  No LinkedIn posts scraped — will rely on Serper snippets for recent activity');
+  }
 
   // ── Step 2: Scrape top non-LinkedIn/GitHub pages from search results ───────
   // These often contain personal websites, portfolios, dev.to, etc.
@@ -304,6 +322,13 @@ ${summarizeSnippets(
     ? `=== ADDITIONAL SCRAPED PAGES ===\n${extraContent}`
     : '';
 
+  const linkedinActivitySection = linkedinPosts.length > 0
+    ? `=== LINKEDIN RECENT POSTS (directly scraped — use these as the SOLE source for recentActivity) ===
+${linkedinPosts.map((p, i) => `[Post ${i + 1}]\n${p}`).join('\n\n---\n\n')}`
+    : `=== LINKEDIN RECENT POSTS ===
+No posts could be scraped. Use Serper snippets tagged site:linkedin.com/posts below for any activity signals.
+Do NOT infer activities from your training data.`;
+
   const userPrompt = `Build a comprehensive structured profile for this person.
 Use the scraped data as primary source. Fill in gaps using your general knowledge where the scraped data is sparse.
 
@@ -312,6 +337,8 @@ Name: ${fullName}
 Company: ${prospect.company || 'Unknown'}
 ${prospectContext ? `\n=== USER-PROVIDED CONTEXT (treat as reliable background info — verify against scraped data) ===\n${prospectContext}\n` : ''}
 ${linkedinSection}
+
+${linkedinActivitySection}
 
 ${snippetSection}
 
@@ -366,7 +393,13 @@ Return JSON:
       "degree": "degree or field of study or null"
     }
   ],
-  "recentActivity": ["up to 3 things explicitly mentioned"],
+  // recentActivity RULES (CRITICAL):
+  // - ONLY use content from the "LINKEDIN RECENT POSTS" section above.
+  // - If no posts were scraped, use Serper snippets from site:linkedin.com/posts.
+  // - NEVER invent activities from your training data or general knowledge.
+  // - Each entry = a concise 1-sentence summary of one real post topic (up to 5).
+  // - If no post data exists at all → return an empty array [].
+  "recentActivity": ["one concise 1-sentence activity per post, sourced only from scraped posts above"],
   "previousCompanies": ["ONLY real companies — never universities, institutes, or schools"],
   "daoInvolvement": ["only if mentioned"],
   "githubStats": {

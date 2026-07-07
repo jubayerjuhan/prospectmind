@@ -283,6 +283,7 @@ export default function ProspectDetailPage() {
   const queryClient = useQueryClient();
   const [editingMsg, setEditingMsg] = useState(null);
   const [editText, setEditText]     = useState('');
+  const [customPrompt, setCustomPrompt] = useState('');
 
   const { data, isLoading } = useQuery({
     queryKey: ['prospect', id],
@@ -323,7 +324,7 @@ export default function ProspectDetailPage() {
   });
 
   const generateMutation = useMutation({
-    mutationFn: () => api.post(`/prospects/${id}/generate-messages`),
+    mutationFn: () => api.post(`/prospects/${id}/generate-messages`, { customPrompt }),
     onSuccess: () => {
       toast.success('Outreach messages generated!');
       queryClient.invalidateQueries(['prospect', id]);
@@ -894,18 +895,28 @@ export default function ProspectDetailPage() {
                 ))}
               </div>
             ) : (
-              <div className="text-center py-6 border border-dashed border-slate-800 rounded-xl">
-                <p className="text-slate-400 text-sm mb-4">No outreach messages generated yet.</p>
-                <button
-                  onClick={() => generateMutation.mutate()}
-                  disabled={generateMutation.isPending || isProcessing}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition"
-                >
-                  <Sparkles size={16} className={generateMutation.isPending ? 'animate-pulse' : ''} />
-                  {generateMutation.isPending ? 'Generating...' : 'Generate Messages'}
-                </button>
-              </div>
+              <p className="text-slate-400 text-sm mb-4">No outreach messages generated yet.</p>
             )}
+
+            <div className="mt-6 border-t border-slate-800 pt-6">
+              <label className="block text-sm font-medium text-slate-300 mb-2">Custom Generation Prompt (Optional)</label>
+              <textarea
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-slate-300 text-sm focus:outline-none focus:border-indigo-500 resize-none mb-3"
+                rows={3}
+                placeholder="e.g. Focus on their recent talk at EthCC and keep the tone very casual..."
+                value={customPrompt}
+                onChange={(e) => setCustomPrompt(e.target.value)}
+                disabled={generateMutation.isPending || isProcessing}
+              />
+              <button
+                onClick={() => generateMutation.mutate()}
+                disabled={generateMutation.isPending || isProcessing}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition"
+              >
+                <Sparkles size={16} className={generateMutation.isPending ? 'animate-pulse' : ''} />
+                {generateMutation.isPending ? 'Generating...' : (p.messages && p.messages.length > 0 ? 'Regenerate Messages' : 'Generate Messages')}
+              </button>
+            </div>
           </div>
         </div>
 
