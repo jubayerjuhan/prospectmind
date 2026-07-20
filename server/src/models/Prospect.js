@@ -143,6 +143,8 @@ const prospectSchema = new mongoose.Schema(
     },
     scoreReasoning: String,
     scoreBreakdown: mongoose.Schema.Types.Mixed,
+    // Per-persona, campaign-aware explanation: [{ persona, fit, campaignValue }]
+    personaBreakdown: mongoose.Schema.Types.Mixed,
     outreachPriority: { type: String, enum: ['high', 'medium', 'low'], default: 'medium' },
 
     // Best contact channel

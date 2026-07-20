@@ -12,6 +12,7 @@ import { askClaude, AIFallbackRequiredError } from '../ai/claudeClient.js';
 import { scrapeLinkedIn } from '../scraper/linkedinScraper.js';
 import { scrapePage } from '../scraper/pageScraper.js';
 import { clipPromptText } from './profileSnapshot.js';
+import { LinkedInAuthError } from '../../utils/pipelineErrors.js';
 
 const SYSTEM_PROMPT = `You are an expert B2B prospect research analyst.
 You are given real scraped data about ONE confirmed person, tied to a specific LinkedIn profile URL.
@@ -250,6 +251,18 @@ export const enrichProfile = async (prospect, discoveredIdentity, { callAI = ask
     scrapeLinkedIn(linkedinUrl),
     collectSnippets(fullName, prospect.company || ''),
   ]);
+
+  // If we had a LinkedIn URL but the scraper could not authenticate, FAIL LOUDLY
+  // rather than enriching an empty profile (which would yield a meaningless score).
+  if (linkedinUrl && linkedinResult?.authFailed) {
+    const isCheckpoint = linkedinResult.reason === 'checkpoint';
+    const message = isCheckpoint
+      ? 'LinkedIn requires manual security verification (it showed a security challenge on login). '
+        + 'In the server folder run "npm run linkedin:login", complete the LinkedIn challenge in the browser window, then re-run this prospect.'
+      : 'LinkedIn session expired — the scraper is logged out, so this profile could not be read. '
+        + 'In the server folder run "npm run linkedin:login" to refresh the LinkedIn session, then re-run this prospect.';
+    throw new LinkedInAuthError(message, { checkpoint: isCheckpoint });
+  }
 
   const linkedinText  = linkedinResult?.text || null;
   const linkedinPosts = linkedinResult?.posts || [];
@@ -517,7 +530,7 @@ Return JSON:
 
   let enriched = {};
   try {
-    enriched = await callAI({ systemPrompt: SYSTEM_PROMPT, userPrompt, maxTokens: 1500, jsonMode: true });
+    enriched = await callAI({ systemPrompt: SYSTEM_PROMPT, userPrompt, maxTokens: 2500, jsonMode: true, thinkingBudget: 0 });
   } catch (error) {
     if (error instanceof AIFallbackRequiredError) {
       console.warn(`[enrichment] Hard fallback triggered for prospect ${prospect._id}`);

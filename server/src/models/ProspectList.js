@@ -9,6 +9,14 @@ const dynamicFilterSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const personaSchema = new mongoose.Schema(
+  {
+    name: { type: String, required: true, trim: true },
+    description: { type: String, trim: true, default: '' },
+  },
+  { _id: false }
+);
+
 const prospectListSchema = new mongoose.Schema(
   {
     organization: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization', required: true, index: true },
@@ -21,7 +29,7 @@ const prospectListSchema = new mongoose.Schema(
     // Per-campaign AI settings
     campaignDescription: { type: String, default: '' }, // Natural-language campaign goals for AI scoring/outreach
     targetEcosystemContext: { type: String, default: '' }, // Free-text ecosystem/context hint fed into the pipeline
-    targetPersonas: [{ type: String, trim: true }], // Free-form persona labels (e.g. 'Startup', 'VC', 'Recruiter')
+    targetPersonas: { type: [personaSchema], default: [] }, // Persona objects: { name, description }. Description guides AI scoring/outreach.
     preferredAiModel: { type: String, enum: ['gemini', 'groq', 'auto'], default: 'gemini' }, // Preferred AI provider for pipeline runs (Groq on hold — see claudeClient.js)
   },
   { timestamps: true }

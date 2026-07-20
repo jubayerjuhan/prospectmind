@@ -5,6 +5,12 @@ const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
 const DEFAULT_GEMINI_FALLBACK_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash'];
 const DEFAULT_VERTEX_LOCATION = 'us-central1';
 
+// Gemini 2.5 models carry a very large input context, so we cap the input prompt
+// at a generous, fixed size that is independent of maxOutputTokens. This lets rich
+// multi-source profiles (LinkedIn + GitHub + other socials) flow in without a higher
+// output budget silently shrinking the input (the previous 5500-maxTokens formula did).
+const MAX_INPUT_CHARS = 48000;
+
 // Vertex AI (billed against a GCP project's billing account, e.g. GOOGLE_CLOUD_PROJECT's
 // $-credit balance) when a project is configured; otherwise the AI Studio API key path
 // (GEMINI_API_KEY, billed against that key's separate prepay balance).
@@ -40,6 +46,7 @@ export const askGemini = async ({
   temperature = 0.4,
   jsonMode = false,
   fallbackModels,
+  thinkingBudget = null, // 0 disables "thinking" on 2.5 models so the whole output budget goes to the answer
 }) => {
   const ai = getClient();
 
@@ -66,12 +73,17 @@ export const askGemini = async ({
           config.responseMimeType = 'application/json';
         }
 
-        // Limit user prompt length just to be safe
-        const safePromptTokens = 5500 - maxTokens;
-        const maxSafeChars = Math.floor(safePromptTokens * 3.5);
+        // "Thinking" tokens count against maxOutputTokens on 2.5 models and can
+        // starve/truncate the actual answer. Only 2.5 models accept thinkingConfig;
+        // the 2.0/1.5 fallbacks reject it, so guard by model name.
+        if (thinkingBudget != null && /2\.5/.test(candidateModel)) {
+          config.thinkingConfig = { thinkingBudget };
+        }
+
+        // Cap input prompt length at a generous fixed size (see MAX_INPUT_CHARS).
         let safeUserPrompt = userPrompt || '';
-        if (safeUserPrompt.length > maxSafeChars) {
-           safeUserPrompt = safeUserPrompt.slice(0, maxSafeChars) + '\n...[TRUNCATED BY AI SAFETY NET]';
+        if (safeUserPrompt.length > MAX_INPUT_CHARS) {
+           safeUserPrompt = safeUserPrompt.slice(0, MAX_INPUT_CHARS) + '\n...[TRUNCATED BY AI SAFETY NET]';
         }
 
         const response = await ai.models.generateContent({

@@ -97,7 +97,10 @@ export const createCampaign = async (req, res) => {
       campaignDescription: talentDescription,
       targetEcosystemContext,
       preferredAiModel,
-      targetPersonas: ['Top-gun Developer', 'Founder'] // Default personas for GTE
+      targetPersonas: [
+        { name: 'Top-gun Developer', description: 'A highly skilled, active open-source engineer whose public repositories and contributions demonstrate strong technical depth in the target ecosystem.' },
+        { name: 'Founder', description: 'A technical founder or co-founder building in the target ecosystem, who could become a client or hiring partner.' },
+      ] // Default personas for GTE
     });
 
     // 3. Create GTE campaign

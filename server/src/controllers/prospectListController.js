@@ -4,6 +4,7 @@ import ProspectList from '../models/ProspectList.js';
 import { buildProspectFilter } from '../utils/buildProspectFilter.js';
 import { queuePipelineRun } from '../services/pipeline/queue.js';
 import { previewSpeakerImport } from '../services/scraper/speakerImportService.js';
+import { normalizePersonas } from '../utils/personas.js';
 
 const LIST_SUMMARY_PROJECTION = '_id firstName lastName company pipelineStatus compatibilityScore outreachPriority primaryAngle';
 const DEFAULT_PAGE = 1;
@@ -217,7 +218,7 @@ export const getProspectLists = async (req, res) => {
           filters: list.type === 'dynamic' ? normalizeFilters(list.filters) : undefined,
           campaignDescription: list.campaignDescription || '',
           targetEcosystemContext: list.targetEcosystemContext || '',
-          targetPersonas: list.targetPersonas || [],
+          targetPersonas: normalizePersonas(list.targetPersonas),
           prospectCount,
           createdAt: list.createdAt,
           updatedAt: list.updatedAt,
@@ -270,7 +271,7 @@ export const getProspectList = async (req, res) => {
         filters: list.type === 'dynamic' ? normalizeFilters(list.filters) : undefined,
         campaignDescription: list.campaignDescription || '',
         targetEcosystemContext: list.targetEcosystemContext || '',
-        targetPersonas: list.targetPersonas || [],
+        targetPersonas: normalizePersonas(list.targetPersonas),
         prospectCount: resolved.total,
         prospects: resolved.prospects,
         createdAt: list.createdAt,
@@ -286,7 +287,7 @@ export const getProspectList = async (req, res) => {
 // POST /api/prospect-lists
 export const createProspectList = async (req, res) => {
   try {
-    const { name, type = 'manual', prospectIds = [], filters, campaignDescription = '', targetEcosystemContext = '' } = req.body;
+    const { name, type = 'manual', prospectIds = [], filters, campaignDescription = '' } = req.body;
 
     if (!name?.trim()) {
       return res.status(400).json({ success: false, message: 'List name is required.' });
@@ -310,10 +311,7 @@ export const createProspectList = async (req, res) => {
       name: name.trim(),
       type,
       campaignDescription: campaignDescription.trim(),
-      targetEcosystemContext: targetEcosystemContext.trim(),
-      targetPersonas: Array.isArray(req.body.targetPersonas)
-        ? req.body.targetPersonas.map((p) => String(p).trim()).filter(Boolean)
-        : [],
+      targetPersonas: normalizePersonas(req.body.targetPersonas),
     };
 
     if (type === 'manual') {
@@ -389,12 +387,8 @@ export const updateProspectList = async (req, res) => {
       list.campaignDescription = req.body.campaignDescription.trim();
     }
 
-    if (typeof req.body.targetEcosystemContext === 'string') {
-      list.targetEcosystemContext = req.body.targetEcosystemContext.trim();
-    }
-
     if (Array.isArray(req.body.targetPersonas)) {
-      list.targetPersonas = req.body.targetPersonas.map((p) => String(p).trim()).filter(Boolean);
+      list.targetPersonas = normalizePersonas(req.body.targetPersonas);
     }
 
     // Groq is on hold — only 'gemini' is accepted for new writes. Existing lists
@@ -498,9 +492,7 @@ export const addAndCreateProspect = async (req, res) => {
     }
 
     // Check campaign gate BEFORE creating
-    const hasCampaignSettings =
-      Boolean(list.campaignDescription?.trim()) &&
-      Boolean(list.targetEcosystemContext?.trim());
+    const hasCampaignSettings = Boolean(list.campaignDescription?.trim());
 
     // Create the prospect
     const prospect = await Prospect.create({
@@ -611,8 +603,8 @@ export const importProspectsConfirm = async (req, res) => {
       return res.status(error.status).json({ success: false, message: error.message });
     }
 
-    if (!list.campaignDescription?.trim() || !list.targetEcosystemContext?.trim()) {
-      return res.status(400).json({ success: false, message: 'Please configure Campaign & Outreach Goal and AI Pipeline Preferences before importing prospects.' });
+    if (!list.campaignDescription?.trim()) {
+      return res.status(400).json({ success: false, message: 'Please configure the Campaign & Outreach Goal before importing prospects.' });
     }
 
     const candidates = Array.isArray(req.body.candidates) ? req.body.candidates.map(normalizeImportedCandidate) : [];

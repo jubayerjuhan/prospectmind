@@ -6,6 +6,7 @@
 
 import { askAI } from '../ai/claudeClient.js';
 import ProspectList from '../../models/ProspectList.js';
+import { formatPersonasForPrompt } from '../../utils/personas.js';
 
 
 const SYSTEM_PROMPT = `You are a master of personalized B2B outreach for a talent intelligence platform called ProspectMind.
@@ -40,8 +41,9 @@ export const generateOutreachMessages = async (prospect, enrichedProfile, classi
 
   const campaignDescription = campaignList?.campaignDescription?.trim() || '';
   const targetEcosystemContext = campaignList?.targetEcosystemContext?.trim() || '';
-  const targetPersonas = campaignList?.targetPersonas?.length
-    ? `Target Personas: ${campaignList.targetPersonas.join(', ')}`
+  const personaBlock = formatPersonasForPrompt(campaignList?.targetPersonas);
+  const targetPersonas = personaBlock
+    ? `Target Personas (with a description of who each is and what the user wants from them):\n${personaBlock}`
     : '';
 
   const campaignContext = [

@@ -152,7 +152,7 @@ Pick the best URL for each. Return JSON:
 
   let result = {};
   try {
-    result = await callAI({ systemPrompt, userPrompt, maxTokens: 512, jsonMode: true });
+    result = await callAI({ systemPrompt, userPrompt, maxTokens: 1024, jsonMode: true, thinkingBudget: 0 });
   } catch (error) {
     if (error instanceof AIFallbackRequiredError) {
       console.warn(`[discovery] Hard fallback triggered for prospect ${prospect._id}`);

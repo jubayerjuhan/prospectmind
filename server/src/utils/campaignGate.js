@@ -4,8 +4,7 @@
  *
  * Rules:
  *  - If the prospect is NOT in any campaign → allowed (orphan prospects run freely)
- *  - If the prospect IS in a campaign → both campaignDescription AND
- *    targetEcosystemContext must be non-empty strings.
+ *  - If the prospect IS in a campaign → campaignDescription must be a non-empty string.
  */
 
 import ProspectList from '../models/ProspectList.js';
@@ -22,7 +21,7 @@ export const checkCampaignGate = async (prospectId, organizationId) => {
     isArchived: false,
     prospects: prospectId,
   })
-    .select('_id name campaignDescription targetEcosystemContext')
+    .select('_id name campaignDescription')
     .lean();
 
   // No campaign found — prospect is standalone, always allowed
@@ -32,7 +31,6 @@ export const checkCampaignGate = async (prospectId, organizationId) => {
 
   const missingFields = [];
   if (!campaign.campaignDescription?.trim()) missingFields.push('Campaign Description & Goals');
-  if (!campaign.targetEcosystemContext?.trim()) missingFields.push('Target Ecosystem & Context');
 
   if (missingFields.length > 0) {
     return {

@@ -25,7 +25,7 @@ export const scoreProfile = async (prospect, enrichedProfile, classification, ca
   if (campaignDescription && campaignDescription.trim() !== '') {
     campaignPrompt = `\n=== CAMPAIGN DESCRIPTION & OUTREACH GOALS ===
 The user running this pipeline has specified the following overarching goals and requirements for this campaign:
-"${clipPromptText(campaignDescription, 1200)}"
+"${clipPromptText(campaignDescription, 6000)}"
 
 You MUST dynamically evaluate this prospect's value toward achieving this specific campaign goal based on their assigned persona.
 - If the prospect is highly valuable for the campaign (as a talent, a client, a partner, an influencer, etc.), give a high compatibilityScore.
@@ -53,6 +53,12 @@ CRITICAL LABEL INSTRUCTIONS:
 - Assign the most appropriate \`scoreLabel\` from this exact list: ["strong_talent_match", "high_potential_client", "strategic_advisor", "influential_voice", "low_priority", "not_relevant"].
 - Make sure the label matches their persona (do not label a non-technical CEO as a "strong_talent_match").
 
+PERSONA BREAKDOWN INSTRUCTIONS:
+- Add one "personaBreakdown" entry for EACH role in the prospect's Classification above (use the role name, e.g. "Founder", "Recruiter").
+- "fit": 1-2 sentences on WHY this prospect matches that persona, citing concrete evidence from their Enriched Profile.
+- "campaignValue": 1-2 sentences on HOW engaging them as this persona advances THIS specific campaign — explicitly reference the Campaign Description & Goals and the matching target-persona definition provided above.
+- If NO campaign description was provided, still explain each persona's general value, but note the assessment is generic (no campaign context).
+
 Return JSON:
 {
   "compatibilityScore": 0-100,
@@ -62,13 +68,16 @@ Return JSON:
     "dynamicDimensionName1": { "score": 0-100, "weight": 0.40, "note": "..." },
     "dynamicDimensionName2": { "score": 0-100, "weight": 0.30, "note": "..." }
   },
+  "personaBreakdown": [
+    { "persona": "Founder", "fit": "why they fit this persona (evidence-based)", "campaignValue": "how they help this campaign as this persona" }
+  ],
   "scoreReasoning": "2–3 sentence explanation focusing on campaign fit and persona value",
   "bestContactChannel": "email|linkedin|x|telegram",
   "contactabilityNotes": "where are they most active/reachable"
 }`;
 
   try {
-    return await callAI({ systemPrompt: SYSTEM_PROMPT, userPrompt, maxTokens: 512, jsonMode: true });
+    return await callAI({ systemPrompt: SYSTEM_PROMPT, userPrompt, maxTokens: 2048, jsonMode: true, thinkingBudget: 0 });
   } catch (error) {
     if (error instanceof AIFallbackRequiredError) {
       console.warn(`[scorer] Hard fallback triggered for prospect ${prospect._id}`);
@@ -80,6 +89,7 @@ Return JSON:
           "Fallback Default": { score: 50, weight: 1.0, note: "AI Unavailable" }
         },
         scoreReasoning: "Fallback data applied because AI routing failed across all providers.",
+        personaBreakdown: [],
         bestContactChannel: "email",
         contactabilityNotes: "Fallback default",
         __isFallback: true

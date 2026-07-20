@@ -30,21 +30,6 @@ import AddProspectModal from '../components/prospects/AddProspectModal';
 import CampaignImportModal from '../components/prospects/CampaignImportModal';
 import ProspectListModal from '../components/prospects/ProspectListModal';
 
-// Predefined persona chips — stored as free-form strings in DB.
-// Add new entries here as the product grows; no backend enum change needed.
-const PREDEFINED_PERSONAS = [
-  'Startup',
-  'VC',
-  'Incubator',
-  'Corporate',
-  'Founder',
-  'Top-gun Developer',
-  'Recruiter',
-  'Mentor',
-  'Advisor',
-  'Community Leader',
-];
-
 const STATUS_COLOR = {
   pending: 'bg-slate-700 text-slate-300',
   ready: 'bg-green-900/50 text-green-400',
@@ -86,11 +71,10 @@ export default function CampaignsPage() {
   const [campaignTab, setCampaignTab] = useState('prospects'); // 'prospects' | 'settings'
   const [campaignSettings, setCampaignSettings] = useState({
     campaignDescription: '',
-    targetEcosystemContext: '',
     targetPersonas: [],
     preferredAiModel: 'gemini',
   });
-  const [customPersonaInput, setCustomPersonaInput] = useState('');
+  const [personaDraft, setPersonaDraft] = useState({ name: '', description: '' });
 
   const activeListId = searchParams.get('list');
   const activeView = activeListId ? { kind: 'list', id: activeListId } : { kind: 'all' };
@@ -274,8 +258,13 @@ export default function CampaignsPage() {
     if (activeListData) {
       setCampaignSettings({
         campaignDescription: activeListData.campaignDescription || '',
-        targetEcosystemContext: activeListData.targetEcosystemContext || '',
-        targetPersonas: activeListData.targetPersonas || [],
+        targetPersonas: (activeListData.targetPersonas || [])
+          .map((p) =>
+            typeof p === 'string'
+              ? { name: p, description: '' }
+              : { name: p?.name || '', description: p?.description || '' }
+          )
+          .filter((p) => p.name),
         // Gemini is the only selectable provider for now (Groq on hold) — normalize
         // older lists that may still have 'groq'/'auto' stored to the active choice.
         preferredAiModel: 'gemini',
@@ -668,14 +657,13 @@ export default function CampaignsPage() {
 
           {/* Missing campaign settings warning banner */}
           {!isAllCampaignsSource && activeList?.type === 'manual' &&
-            (!activeList?.campaignDescription?.trim() || !activeList?.targetEcosystemContext?.trim()) && (
+            !activeList?.campaignDescription?.trim() && (
             <div className="flex items-start gap-3 rounded-xl border border-amber-800/50 bg-amber-950/20 px-4 py-3">
               <AlertTriangle size={15} className="text-amber-400 mt-0.5 shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-amber-300 text-xs font-semibold">Campaign settings required</p>
                 <p className="text-amber-400/80 text-xs mt-0.5 leading-relaxed">
-                  Fill in <strong>Campaign Description</strong> and <strong>Target Ecosystem</strong> in
-                  the{' '}
+                  Fill in the <strong>Campaign Description &amp; Goals</strong> in the{' '}
                   <button
                     onClick={() => setCampaignTab('settings')}
                     className="underline hover:text-amber-200 transition"
@@ -900,122 +888,104 @@ export default function CampaignsPage() {
               </div>
             </div>
 
-            {/* Target Personas Selector */}
+            {/* Target Personas Builder */}
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
               <h2 className="text-white font-semibold text-base flex items-center gap-2 border-b border-slate-800 pb-3">
                 <UserCheck size={18} className="text-indigo-400" />
                 Target Personas
               </h2>
               <div className="bg-indigo-950/20 border border-indigo-900/40 rounded-lg p-3 text-xs text-indigo-300 leading-relaxed">
-                <strong>Who are you targeting?</strong> Select one or more personas that describe your ideal
-                prospects in this campaign. The AI uses these to calibrate scoring and outreach tone.
+                <strong>Who are you targeting?</strong> Add one or more personas that describe your ideal
+                prospects. Give each a <strong>name</strong> and a short <strong>description</strong> of who
+                they are, how they act, and what you expect from them — the AI uses these descriptions to
+                score prospects and tailor outreach.
               </div>
-              <div className="flex flex-wrap gap-2">
-                {PREDEFINED_PERSONAS.map((persona) => {
-                  const isSelected = campaignSettings.targetPersonas.includes(persona);
-                  return (
-                    <button
-                      key={persona}
-                      type="button"
-                      onClick={() =>
-                        setCampaignSettings((prev) => ({
-                          ...prev,
-                          targetPersonas: isSelected
-                            ? prev.targetPersonas.filter((p) => p !== persona)
-                            : [...prev.targetPersonas, persona],
-                        }))
-                      }
-                      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
-                        isSelected
-                          ? 'bg-indigo-600/30 border-indigo-500 text-indigo-200'
-                          : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-indigo-700 hover:text-slate-200'
-                      }`}
+
+              {/* Existing personas */}
+              {campaignSettings.targetPersonas.length > 0 ? (
+                <div className="space-y-2">
+                  {campaignSettings.targetPersonas.map((persona, idx) => (
+                    <div
+                      key={`${persona.name}-${idx}`}
+                      className="flex items-start justify-between gap-3 bg-slate-800/60 border border-slate-700 rounded-lg p-3"
                     >
-                      {isSelected ? '✓ ' : ''}{persona}
-                    </button>
-                  );
-                })}
-              </div>
-              {/* Custom persona input */}
-              <div className="flex gap-2 mt-2">
-                <input
-                  type="text"
-                  value={customPersonaInput}
-                  onChange={(e) => setCustomPersonaInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      const val = customPersonaInput.trim();
-                      if (val && !campaignSettings.targetPersonas.includes(val)) {
-                        setCampaignSettings((prev) => ({ ...prev, targetPersonas: [...prev.targetPersonas, val] }));
-                      }
-                      setCustomPersonaInput('');
-                    }
-                  }}
-                  placeholder="Add custom persona (press Enter)…"
-                  className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 text-sm focus:outline-none focus:border-indigo-500 transition placeholder-slate-600"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    const val = customPersonaInput.trim();
-                    if (val && !campaignSettings.targetPersonas.includes(val)) {
-                      setCampaignSettings((prev) => ({ ...prev, targetPersonas: [...prev.targetPersonas, val] }));
-                    }
-                    setCustomPersonaInput('');
-                  }}
-                  className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-sm transition"
-                >
-                  Add
-                </button>
-              </div>
-              {/* Show any custom personas that are selected but not in the predefined list */}
-              {campaignSettings.targetPersonas.filter((p) => !PREDEFINED_PERSONAS.includes(p)).length > 0 && (
-                <div className="flex flex-wrap gap-2 pt-1">
-                  <span className="text-slate-600 text-xs self-center">Custom:</span>
-                  {campaignSettings.targetPersonas
-                    .filter((p) => !PREDEFINED_PERSONAS.includes(p))
-                    .map((persona) => (
+                      <div className="min-w-0">
+                        <p className="text-slate-100 text-sm font-medium">{persona.name}</p>
+                        {persona.description ? (
+                          <p className="text-slate-400 text-xs mt-1 leading-relaxed break-words">
+                            {persona.description}
+                          </p>
+                        ) : null}
+                      </div>
                       <button
-                        key={persona}
                         type="button"
                         onClick={() =>
                           setCampaignSettings((prev) => ({
                             ...prev,
-                            targetPersonas: prev.targetPersonas.filter((p) => p !== persona),
+                            targetPersonas: prev.targetPersonas.filter((_, i) => i !== idx),
                           }))
                         }
-                        className="px-3 py-1.5 rounded-full text-xs font-medium border bg-teal-600/20 border-teal-600/50 text-teal-300 hover:bg-red-900/30 hover:border-red-700 hover:text-red-300 transition-all"
+                        className="shrink-0 text-slate-500 hover:text-red-400 transition"
+                        aria-label={`Remove ${persona.name}`}
                       >
-                        {persona} ✕
+                        <Trash2 size={16} />
                       </button>
-                    ))}
+                    </div>
+                  ))}
                 </div>
+              ) : (
+                <p className="text-slate-600 text-xs italic">
+                  No personas added yet. Add your first target persona below.
+                </p>
               )}
+
+              {/* Add persona form */}
+              <div className="space-y-2 border-t border-slate-800 pt-4">
+                <input
+                  type="text"
+                  value={personaDraft.name}
+                  onChange={(e) => setPersonaDraft((prev) => ({ ...prev, name: e.target.value }))}
+                  placeholder="Persona name (e.g. Web3 Startup Founder)"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 text-sm focus:outline-none focus:border-indigo-500 transition placeholder-slate-600"
+                />
+                <textarea
+                  value={personaDraft.description}
+                  onChange={(e) => setPersonaDraft((prev) => ({ ...prev, description: e.target.value }))}
+                  placeholder="Describe this persona — who they are, how they act, and what you're looking for from them…"
+                  rows={3}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 text-sm focus:outline-none focus:border-indigo-500 transition placeholder-slate-600 resize-none"
+                />
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    disabled={!personaDraft.name.trim() || !personaDraft.description.trim()}
+                    onClick={() => {
+                      const name = personaDraft.name.trim();
+                      const description = personaDraft.description.trim();
+                      if (!name || !description) return;
+                      if (
+                        campaignSettings.targetPersonas.some(
+                          (p) => p.name.toLowerCase() === name.toLowerCase()
+                        )
+                      ) {
+                        toast.error('A persona with this name already exists');
+                        return;
+                      }
+                      setCampaignSettings((prev) => ({
+                        ...prev,
+                        targetPersonas: [...prev.targetPersonas, { name, description }],
+                      }));
+                      setPersonaDraft({ name: '', description: '' });
+                    }}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg text-sm transition"
+                  >
+                    <Plus size={15} />
+                    Add Persona
+                  </button>
+                </div>
+              </div>
             </div>
 
-            {/* AI Pipeline Preferences */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
-              <h2 className="text-white font-semibold text-base flex items-center gap-2 border-b border-slate-800 pb-3">
-                <Zap size={18} className="text-indigo-400" />
-                AI Pipeline Preferences
-              </h2>
-              <div className="bg-indigo-950/20 border border-indigo-900/40 rounded-lg p-3 text-xs text-indigo-300 leading-relaxed">
-                <strong>Target Ecosystem / Context:</strong> Describe the ecosystem, industry, or technical context of your target prospects in natural language. The AI will use this to better evaluate and score candidates for this specific campaign.
-              </div>
-              <div>
-                <label className="block text-slate-400 text-xs font-semibold uppercase tracking-wider mb-2">
-                  Target Ecosystem &amp; Context
-                </label>
-                <textarea
-                  value={campaignSettings.targetEcosystemContext}
-                  onChange={(e) => setCampaignSettings((prev) => ({ ...prev, targetEcosystemContext: e.target.value }))}
-                  rows={5}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg p-4 text-slate-200 text-sm focus:outline-none focus:border-indigo-500 transition resize-none placeholder-slate-500"
-                  placeholder="Example: We focus on Web3-native companies (Solidity, Rust, DAO tooling). Prioritize candidates with DeFi protocol experience or L2 infrastructure work. For business targets, focus on early-stage web3 startups with recent funding..."
-                />
-              </div>
-            </div>
 
             {/* AI Model Preference */}
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
@@ -1123,9 +1093,7 @@ export default function CampaignsPage() {
           onCreated={handleManualProspectCreated}
           campaignContext={{
             campaignId: activeList._id,
-            hasCampaignSettings:
-              Boolean(activeList.campaignDescription?.trim()) &&
-              Boolean(activeList.targetEcosystemContext?.trim()),
+            hasCampaignSettings: Boolean(activeList.campaignDescription?.trim()),
           }}
         />
       )}

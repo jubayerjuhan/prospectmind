@@ -9,7 +9,7 @@ export default function CampaignImportModal({ campaign, onClose, onImported }) {
   const [selectedKeys, setSelectedKeys] = useState([]);
   const [preview, setPreview] = useState(null);
 
-  const isConfigured = campaign.campaignDescription?.trim() && campaign.targetEcosystemContext?.trim();
+  const isConfigured = campaign.campaignDescription?.trim();
 
   const previewMutation = useMutation({
     mutationFn: (pageUrl) =>

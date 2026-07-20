@@ -489,6 +489,12 @@ export default function ProspectDetailPage() {
               <p className="text-red-400/70 text-xs mt-0.5 break-words">
                 {(() => {
                   const err = p.pipelineError;
+                  // LinkedIn auth/checkpoint messages from the pipeline are already
+                  // user-facing and actionable (they name the login helper) — show verbatim.
+                  if (err.toLowerCase().includes('linkedin') &&
+                      (err.toLowerCase().includes('session') || err.toLowerCase().includes('logged out') || err.toLowerCase().includes('verification'))) {
+                    return err;
+                  }
                   if (err.includes('413') || err.toLowerCase().includes('too large')) {
                     return "This prospect's profile contains too much data to process at once under your current AI limits. Please upgrade your tier or try again later.";
                   }
@@ -642,7 +648,44 @@ export default function ProspectDetailPage() {
               <div className="flex flex-wrap gap-2 mb-3">
                 {p.roleClassification.map((r) => <Badge key={r}>{r}</Badge>)}
               </div>
-              {p.scoreReasoning && <p className="text-slate-400 text-sm">{p.scoreReasoning}</p>}
+
+              {Array.isArray(p.personaBreakdown) && p.personaBreakdown.length > 0 ? (
+                <div className="space-y-3">
+                  {p.personaBreakdown.map((pb, idx) => (
+                    <div
+                      key={`${pb.persona || 'persona'}-${idx}`}
+                      className="rounded-lg border border-slate-800 bg-slate-950/40 p-3"
+                    >
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-indigo-400" />
+                        <span className="text-indigo-300 text-sm font-semibold capitalize">
+                          {pb.persona}
+                        </span>
+                      </div>
+                      {pb.fit && (
+                        <p className="text-slate-300 text-sm leading-relaxed">
+                          <span className="text-slate-500 font-medium">Why they fit: </span>
+                          {pb.fit}
+                        </p>
+                      )}
+                      {pb.campaignValue && (
+                        <p className="text-slate-300 text-sm leading-relaxed mt-1.5">
+                          <span className="text-slate-500 font-medium">Value to this campaign: </span>
+                          {pb.campaignValue}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                  {p.scoreReasoning && (
+                    <p className="text-slate-400 text-sm pt-1 border-t border-slate-800/70">
+                      <span className="text-slate-500 font-medium">Overall: </span>
+                      {p.scoreReasoning}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                p.scoreReasoning && <p className="text-slate-400 text-sm">{p.scoreReasoning}</p>
+              )}
             </div>
           )}
 

@@ -43,6 +43,17 @@ const loadSession = () => {
   return null;
 };
 
+const clearSession = () => {
+  try {
+    if (fs.existsSync(SESSION_FILE)) {
+      fs.unlinkSync(SESSION_FILE);
+      console.log('[linkedin] Cleared stale session file');
+    }
+  } catch (e) {
+    console.warn('[linkedin] Could not clear session:', e.message);
+  }
+};
+
 // ─── Browser Factory ──────────────────────────────────────────────────────────
 
 const launchBrowser = () =>
@@ -75,13 +86,24 @@ const loginToLinkedIn = async (page) => {
 
   if (!email || !password) {
     console.warn('[linkedin] LINKEDIN_EMAIL or LINKEDIN_PASSWORD not set in .env');
-    return false;
+    return { ok: false, reason: 'no_credentials' };
   }
 
   console.log('[linkedin] Logging in as', email);
 
+  // Clear any stale/invalid cookies first. With a dead session still set, LinkedIn
+  // serves a form-less variant of /login (0 inputs), so login silently fails.
+  // A clean cookie jar guarantees the real login form renders.
+  try {
+    const client = await page.createCDPSession();
+    await client.send('Network.clearBrowserCookies');
+    console.log('[linkedin] Cleared browser cookies before login');
+  } catch (e) {
+    console.warn('[linkedin] Could not clear browser cookies:', e.message);
+  }
+
   await page.goto('https://www.linkedin.com/login', { waitUntil: 'networkidle2', timeout: 30000 });
-  await new Promise(r => setTimeout(r, 2000)); // let form fully render
+  await new Promise(r => setTimeout(r, 2500)); // let form fully render
 
   // ── Collect all input metadata and hand it to AI ─────────────────────────
   // Sending structured input properties (not raw HTML) gives the model clean
@@ -149,7 +171,7 @@ const loginToLinkedIn = async (page) => {
 
   if (!emailSel || !passSel) {
     console.warn('[linkedin] Could not locate login fields via AI or fallback selectors');
-    return false;
+    return { ok: false, reason: 'no_fields' };
   }
 
   // Set values via JS native setter (works regardless of React/Angular state)
@@ -183,7 +205,7 @@ const loginToLinkedIn = async (page) => {
 
   if (!fillResult.ok) {
     console.warn('[linkedin] Could not fill form fields:', fillResult.reason);
-    return false;
+    return { ok: false, reason: 'fill_failed' };
   }
 
   await new Promise(r => setTimeout(r, 500));
@@ -199,7 +221,7 @@ const loginToLinkedIn = async (page) => {
 
   if (url.includes('checkpoint') || url.includes('challenge')) {
     console.warn('[linkedin] ⚠️  LinkedIn triggered a security challenge — manual verification needed');
-    return false;
+    return { ok: false, reason: 'checkpoint' };
   }
 
   if (url.includes('feed') || url.includes('mynetwork') || !url.includes('login')) {
@@ -207,11 +229,34 @@ const loginToLinkedIn = async (page) => {
     // Save session cookies
     const cookies = await page.cookies();
     saveSession(cookies);
-    return true;
+    return { ok: true, reason: 'ok' };
   }
 
   console.warn('[linkedin] Login may have failed — URL:', url);
-  return false;
+  return { ok: false, reason: 'failed' };
+};
+
+// ─── Auth Verification ────────────────────────────────────────────────────────
+// The only reliable, language-agnostic way to know we are actually logged in:
+// try to open a login-ONLY page (/feed/). If LinkedIn keeps us there we're in;
+// if it redirects to a login/authwall/uas page, the session is invalid — even if
+// the li_at cookie is still timestamp-valid (LinkedIn can revoke it server-side).
+const FEED_URL = 'https://www.linkedin.com/feed/';
+
+const verifyLoggedIn = async (page) => {
+  try {
+    await page.goto(FEED_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    const finalUrl = page.url();
+    const loggedIn = finalUrl.includes('/feed') &&
+      !/authwall|\/login|checkpoint|uas\/login|signup/i.test(finalUrl);
+    if (!loggedIn) {
+      console.warn(`[linkedin] Not authenticated — /feed/ redirected to ${finalUrl}`);
+    }
+    return loggedIn;
+  } catch (e) {
+    console.warn('[linkedin] verifyLoggedIn error:', e.message);
+    return false;
+  }
 };
 
 // ─── Scrape a single page and return cleaned innerText ───────────────────────
@@ -223,6 +268,21 @@ const scrapePageText = async (page, url) => {
   const currentUrl = page.url();
   if (currentUrl.includes('authwall') || currentUrl.includes('login') || currentUrl.includes('checkpoint')) {
     console.warn(`[linkedin] ↳ Hit authwall/login at ${currentUrl}`);
+    return null;
+  }
+
+  // Language-agnostic auth-wall detection: LinkedIn often serves a login/signup
+  // wall INLINE at the profile URL (HTTP 200, no redirect) and localized to the
+  // viewer's language. A real logged-in profile page never contains a password
+  // or signup (first name) field, so their presence means we are logged OUT.
+  // This replaces the old English-only text heuristic that missed localized walls.
+  const isAuthWall = await page.evaluate(() =>
+    !!document.querySelector(
+      'input[type="password"], input[name="session_password"], input#password, input[name="firstName"], input[name="first-name"]'
+    )
+  );
+  if (isAuthWall) {
+    console.warn(`[linkedin] ↳ Login/signup wall detected inline at ${url} — NOT logged in`);
     return null;
   }
 
@@ -445,8 +505,8 @@ export const scrapeLinkedInActivity = async (linkedinUrl) => {
       const cdp = await page.createCDPSession();
       await cdp.send('Network.setCookies', { cookies: savedCookies });
     } else {
-      const loggedIn = await loginToLinkedIn(page);
-      if (!loggedIn) {
+      const { ok } = await loginToLinkedIn(page);
+      if (!ok) {
         await browser.close();
         return [];
       }
@@ -473,7 +533,7 @@ export const scrapeLinkedInActivity = async (linkedinUrl) => {
  *                 Info panel, authoritative since it's tied to the exact URL
  */
 export const scrapeLinkedIn = async (linkedinUrl) => {
-  if (!linkedinUrl) return { text: null, posts: [], contactInfo: null };
+  if (!linkedinUrl) return { text: null, posts: [], contactInfo: null, authFailed: false };
 
   const url = linkedinUrl.split('?')[0].replace(/\/$/, '');
   console.log(`[linkedin] Scraping: ${url}`);
@@ -494,41 +554,50 @@ export const scrapeLinkedIn = async (linkedinUrl) => {
     } else {
       // No session — must login first
       console.log('[linkedin] No saved session — logging in');
-      const loggedIn = await loginToLinkedIn(page);
-      if (!loggedIn) {
+      const login = await loginToLinkedIn(page);
+      if (!login.ok) {
+        console.warn('[linkedin] ❌ Initial login failed — cannot scrape while logged out');
         await browser.close();
-        return { text: null, posts: [], contactInfo: null };
+        return { text: null, posts: [], contactInfo: null, authFailed: true, reason: login.reason };
       }
     }
+
+    // ── Verify we are ACTUALLY logged in BEFORE scraping any profile ───────
+    // A saved cookie can be timestamp-valid but revoked server-side, in which
+    // case LinkedIn serves a localized login wall inline at the profile URL.
+    // Checking /feed/ up front avoids ever enriching that wall as if it were data.
+    let loginReason = null;
+    let loggedIn = await verifyLoggedIn(page);
+    if (!loggedIn) {
+      console.log('[linkedin] ⚠️  Saved session is not authenticated — clearing and re-logging in');
+      clearSession();
+      const login = await loginToLinkedIn(page);
+      loginReason = login.reason;
+      loggedIn = login.ok && (await verifyLoggedIn(page));
+    }
+    if (!loggedIn) {
+      console.warn('[linkedin] ❌ Could not establish an authenticated session — aborting (will NOT scrape logged-out)');
+      await browser.close();
+      return { text: null, posts: [], contactInfo: null, authFailed: true, reason: loginReason };
+    }
+    console.log('[linkedin] ✅ Confirmed logged in — proceeding to scrape profile');
 
     // ── Scrape the profile (+ activity in the same session) ───────────────
     let { text, posts, contactInfo, sessionExpired } = await scrapeProfilePage(page, url);
 
-    // ── Check if we're actually logged in (not just public view) ──────────
-    const isLoggedOut = text && (
-      text.includes('Join to view full profile') ||
-      /View .+?'s full (profile|experience)/i.test(text) ||
-      (text.includes('Sign in') && text.includes('Join now') && !text.includes('notifications'))
-    );
-
-    if (sessionExpired || isLoggedOut) {
-      console.log('[linkedin] Not logged in — re-logging in');
-      const loggedIn = await loginToLinkedIn(page);
-      if (!loggedIn) {
-        await browser.close();
-        return { text: null, posts: [], contactInfo: null };
-      }
-      const result = await scrapeProfilePage(page, url);
-      text        = result.text;
-      posts       = result.posts;
-      contactInfo = result.contactInfo;
+    // If a wall still appears mid-scrape, the session died — fail rather than
+    // enriching garbage. (scrapePageText returns null on a login/signup wall.)
+    if (sessionExpired) {
+      console.warn('[linkedin] ❌ Auth wall appeared during profile scrape — aborting');
+      await browser.close();
+      return { text: null, posts: [], contactInfo: null, authFailed: true };
     }
 
     await browser.close();
 
     if (!text || text.length < 200) {
       console.warn('[linkedin] Profile text too short');
-      return { text: null, posts, contactInfo };
+      return { text: null, posts, contactInfo, authFailed: false };
     }
 
     // Clean up text
@@ -541,11 +610,11 @@ export const scrapeLinkedIn = async (linkedinUrl) => {
       .slice(0, 5000);
 
     console.log(`[linkedin] ✅ Scraped ${cleaned.length} chars | ${posts.length} activity posts`);
-    return { text: cleaned, posts, contactInfo };
+    return { text: cleaned, posts, contactInfo, authFailed: false };
 
   } catch (err) {
     console.error('[linkedin] Error:', err.message);
     if (browser) await browser.close().catch(() => {});
-    return { text: null, posts: [], contactInfo: null };
+    return { text: null, posts: [], contactInfo: null, authFailed: false };
   }
 };

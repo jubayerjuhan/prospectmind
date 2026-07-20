@@ -11,6 +11,7 @@ import { resolveIdentity } from './discovery.js';
 import { enrichProfile } from './enrichment.js';
 import { classifyProfile } from './classifier.js';
 import { scoreProfile } from './scorer.js';
+import { formatPersonasForPrompt } from '../../utils/personas.js';
 
 const updateStatus = async (prospectId, status, extra = {}) => {
   await Prospect.findByIdAndUpdate(prospectId, { pipelineStatus: status, ...extra });
@@ -81,8 +82,9 @@ export const runPipeline = async (prospectId) => {
     org?.settings?.defaultEcosystem ||
     '';
 
-  const personaContext = campaignList?.targetPersonas?.length
-    ? `Target Personas for this campaign: ${campaignList.targetPersonas.join(', ')}`
+  const personaBlock = formatPersonasForPrompt(campaignList?.targetPersonas);
+  const personaContext = personaBlock
+    ? `Target Personas for this campaign (the user is specifically looking for these persona types — use each description to judge how well the prospect fits):\n${personaBlock}`
     : '';
 
   const fullCampaignContext = [
@@ -166,6 +168,7 @@ export const runPipeline = async (prospectId) => {
       scoreLabel: scoring.scoreLabel,
       scoreReasoning: scoring.scoreReasoning,
       scoreBreakdown: scoring.scoreBreakdown,
+      personaBreakdown: scoring.personaBreakdown || [],
       outreachPriority: scoring.outreachPriority,
       bestContactChannel: scoring.bestContactChannel,
       messages,
@@ -179,6 +182,7 @@ export const runPipeline = async (prospectId) => {
     });
 
     console.log(`  ✅ Pipeline complete. Score: ${scoring.compatibilityScore}/100 | Provider: ${aiProviderUsed}`);
+    if (scoring.scoreReasoning) console.log(`  📊 Reasoning: ${scoring.scoreReasoning}`);
     return { success: true, prospectId };
   } catch (error) {
     console.error(`  ❌ Pipeline failed:`, error.message);

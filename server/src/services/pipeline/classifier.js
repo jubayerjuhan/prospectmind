@@ -49,7 +49,7 @@ Return JSON:
 }`;
 
   try {
-    return await callAI({ systemPrompt: SYSTEM_PROMPT, userPrompt, maxTokens: 512, jsonMode: true });
+    return await callAI({ systemPrompt: SYSTEM_PROMPT, userPrompt, maxTokens: 1024, jsonMode: true, thinkingBudget: 0 });
   } catch (error) {
     if (error instanceof AIFallbackRequiredError) {
       console.warn(`[classifier] Hard fallback triggered for prospect ${prospect._id}`);

@@ -1,6 +1,7 @@
-import { Queue, Worker } from 'bullmq';
+import { Queue, Worker, UnrecoverableError } from 'bullmq';
 import Redis from 'ioredis';
 import { runPipeline } from './runner.js';
+import { LinkedInAuthError } from '../../utils/pipelineErrors.js';
 import 'dotenv/config';
 
 // Initialize Redis connection for BullMQ (maxRetriesPerRequest must be null)
@@ -21,6 +22,12 @@ export const pipelineWorker = new Worker('pipelineQueue', async (job) => {
         await runPipeline(prospectId);
     } catch (err) {
         console.error(`Queue pipeline error for ${prospectId}:`, err.message);
+        // LinkedIn auth failures (especially security checkpoints) must NOT be
+        // retried — each retry fires another headless login that trips the same
+        // checkpoint again and flags the account harder. Fail immediately.
+        if (err instanceof LinkedInAuthError || err?.code === 'LINKEDIN_AUTH') {
+            throw new UnrecoverableError(err.message);
+        }
         throw err;
     }
 }, {
