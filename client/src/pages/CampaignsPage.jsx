@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import AddProspectModal from '../components/prospects/AddProspectModal';
 import CampaignImportModal from '../components/prospects/CampaignImportModal';
+import MicButton from '../components/ui/MicButton';
 import ProspectListModal from '../components/prospects/ProspectListModal';
 
 const STATUS_COLOR = {
@@ -875,9 +876,21 @@ export default function CampaignsPage() {
                 <strong>How this works:</strong> Describe what you want from this campaign in natural language. The AI will dynamically evaluate each prospect based on their persona (Talent, CEO, Recruiter, etc.) and your campaign goals. Changing this description updates the AI scoring logic instantly for your next pipeline run!
               </div>
               <div>
-                <label className="block text-slate-400 text-xs font-semibold uppercase tracking-wider mb-2">
-                  Campaign Description &amp; Goals
-                </label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-slate-400 text-xs font-semibold uppercase tracking-wider">
+                    Campaign Description &amp; Goals
+                  </label>
+                  <MicButton
+                    onTranscript={(text) =>
+                      setCampaignSettings((prev) => ({
+                        ...prev,
+                        campaignDescription: prev.campaignDescription.trim()
+                          ? `${prev.campaignDescription.trim()} ${text}`
+                          : text,
+                      }))
+                    }
+                  />
+                </div>
                 <textarea
                   value={campaignSettings.campaignDescription}
                   onChange={(e) => setCampaignSettings((prev) => ({ ...prev, campaignDescription: e.target.value }))}
@@ -948,13 +961,24 @@ export default function CampaignsPage() {
                   placeholder="Persona name (e.g. Web3 Startup Founder)"
                   className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 text-sm focus:outline-none focus:border-indigo-500 transition placeholder-slate-600"
                 />
-                <textarea
-                  value={personaDraft.description}
-                  onChange={(e) => setPersonaDraft((prev) => ({ ...prev, description: e.target.value }))}
-                  placeholder="Describe this persona — who they are, how they act, and what you're looking for from them…"
-                  rows={3}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 text-sm focus:outline-none focus:border-indigo-500 transition placeholder-slate-600 resize-none"
-                />
+                <div className="relative">
+                  <textarea
+                    value={personaDraft.description}
+                    onChange={(e) => setPersonaDraft((prev) => ({ ...prev, description: e.target.value }))}
+                    placeholder="Describe this persona — who they are, how they act, and what you're looking for from them…"
+                    rows={3}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 pr-24 text-slate-200 text-sm focus:outline-none focus:border-indigo-500 transition placeholder-slate-600 resize-none"
+                  />
+                  <MicButton
+                    className="absolute top-2 right-2"
+                    onTranscript={(text) =>
+                      setPersonaDraft((prev) => ({
+                        ...prev,
+                        description: prev.description.trim() ? `${prev.description.trim()} ${text}` : text,
+                      }))
+                    }
+                  />
+                </div>
                 <div className="flex justify-end">
                   <button
                     type="button"

@@ -111,3 +111,29 @@ export const askGemini = async ({
 
   throw new Error(`All Gemini models failed (${modelsToTry.join(', ')}): ${lastError?.message || 'Unknown error'}`);
 };
+
+// Voice-dictation transcription. Bypasses askGemini/parseGroqResponse on purpose —
+// this sends a multimodal (audio inlineData) request and wants raw transcript text
+// back, not JSON parsing.
+export const transcribeAudio = async ({ audioBase64, mimeType }) => {
+  const ai = getClient();
+  const model = process.env.GEMINI_TRANSCRIBE_MODEL || 'gemini-2.5-flash';
+
+  const response = await ai.models.generateContent({
+    model,
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          { inlineData: { mimeType, data: audioBase64 } },
+          {
+            text: 'Transcribe the spoken audio exactly as spoken. Return ONLY the transcript text — no commentary, no quotes, no markdown.',
+          },
+        ],
+      },
+    ],
+    config: { maxOutputTokens: 1024, temperature: 0.1 },
+  });
+
+  return (response.text || '').trim();
+};

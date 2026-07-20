@@ -5,6 +5,7 @@ import prospectListRoutes from './prospectLists.js';
 import billingRoutes from './billing.js';
 import organizationRoutes from './organization.js';
 import githubTalentRoutes from './githubTalent.js';
+import aiRoutes from './ai.js';
 
 const router = Router();
 
@@ -14,6 +15,7 @@ router.use('/prospect-lists', prospectListRoutes);
 router.use('/billing', billingRoutes);
 router.use('/organization', organizationRoutes);
 router.use('/github-talent', githubTalentRoutes);
+router.use('/ai', aiRoutes);
 
 router.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 

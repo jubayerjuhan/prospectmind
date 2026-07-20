@@ -30,6 +30,8 @@ app.use(
 app.use('/api/billing/webhook', express.raw({ type: 'application/json' }));
 
 // ── Body parsing ──────────────────────────────────────────────────────────────
+// Voice-dictation uploads (base64 audio) need more headroom than the default 5mb.
+app.use('/api/ai/transcribe', express.json({ limit: '10mb' }));
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true }));
 
