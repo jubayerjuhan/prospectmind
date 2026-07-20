@@ -280,7 +280,7 @@ export const getCampaignStatus = async (req, res) => {
 
 export const generateKeywordsPreview = async (req, res) => {
   try {
-    const { talentDescription, preferredAiModel = 'auto' } = req.body;
+    const { talentDescription, preferredAiModel = 'gemini' } = req.body;
     
     if (!talentDescription?.trim()) {
       return res.status(400).json({ success: false, message: 'Description is required' });

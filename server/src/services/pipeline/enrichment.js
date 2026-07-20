@@ -14,13 +14,24 @@ import { scrapePage } from '../scraper/pageScraper.js';
 import { clipPromptText } from './profileSnapshot.js';
 
 const SYSTEM_PROMPT = `You are an expert B2B prospect research analyst.
-You are given scraped content from LinkedIn, GitHub, personal websites, and Google search snippets.
-Your job is to produce the richest possible structured profile by combining:
-1. The scraped data provided (treat as primary source)
-2. Your general knowledge about this person, their company, and their public work
+You are given real scraped data about ONE confirmed person, tied to a specific LinkedIn profile URL.
 
-Prioritise scraped data when it contradicts your knowledge.
-Make reasonable inferences where data is sparse — clearly mark inferred fields with best-effort estimates.
+Two tiers of data, treat them very differently:
+1. CONFIRMED — the "LINKEDIN PROFILE", "LINKEDIN RECENT POSTS", and "GITHUB DATA" sections. This
+   data is already tied to the exact confirmed profile. Extract from it fully, confidently, and
+   in detail — this is exactly what you're here to do. Do not under-report or leave a field null
+   just because it's only mentioned once.
+2. UNVERIFIED — "OTHER SEARCH SNIPPETS" and "ADDITIONAL SCRAPED PAGES". These come from a generic
+   name search and may describe a different person who happens to share this name. Use them only
+   as minor supplementary color that doesn't conflict with the CONFIRMED data — never as your
+   primary source for a fact, and never to override something already stated in CONFIRMED data.
+
+Never use your own pretrained/background knowledge about a specific person with this name — many
+people share common names, and anything you "remember" is very likely about someone else, not
+present in the data you were actually given. (General knowledge about a well-known company or
+product — what it does, when it was founded — is fine; general knowledge about a *person* is not.)
+
+Only leave a field null if it is genuinely absent from BOTH the CONFIRMED and UNVERIFIED sections.
 Always return valid JSON.`;
 
 const SERPER_API_URL = 'https://google.serper.dev/search';
@@ -150,6 +161,49 @@ const usernameMatchesName = (username, firstName, lastName) => {
   return (fn && u.includes(fn)) || (ln && u.includes(ln));
 };
 
+// ─── Identity anchor guard ────────────────────────────────────────────────────
+// A generic "name-based" Google search has no idea which of the many people
+// sharing this name we mean. We only trust a non-LinkedIn snippet/page enough
+// to feed it into the enrichment prompt if it corroborates something we
+// already know for certain about THIS confirmed profile: the exact LinkedIn
+// slug, the known company, or a personal domain that is literally their name.
+
+const STOPWORDS = new Set([
+  'the', 'inc', 'llc', 'ltd', 'co', 'corp', 'group', 'company', 'companies',
+  'technologies', 'technology', 'labs', 'lab', 'studio', 'studios', 'team', 'and', 'of', 'for',
+]);
+
+const extractLinkedinSlug = (linkedinUrl) => {
+  if (!linkedinUrl) return null;
+  const match = linkedinUrl.match(/\/in\/([^/?]+)/i);
+  return match ? match[1].toLowerCase() : null;
+};
+
+const companyTokensOf = (company) =>
+  (company || '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length >= 3 && !STOPWORDS.has(t));
+
+const matchesAnchor = ({ source = '', title = '', snippet = '' }, { companyTokens, linkedinSlug, firstName, lastName }) => {
+  const haystack = `${source} ${title} ${snippet}`.toLowerCase();
+  if (linkedinSlug && haystack.includes(linkedinSlug)) return true;
+  if (companyTokens.some((token) => haystack.includes(token))) return true;
+
+  // A domain that is literally the person's own name (e.g. farhadhossain.dev)
+  // is strong self-identifying evidence, independent of company.
+  try {
+    const host = new URL(source).hostname.toLowerCase().replace(/^www\./, '');
+    const hostCompact = host.replace(/[^a-z0-9]/g, '');
+    const fn = (firstName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const ln = (lastName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (fn && ln && hostCompact.includes(fn) && hostCompact.includes(ln)) return true;
+  } catch {
+    // invalid URL — ignore
+  }
+  return false;
+};
+
 // ─── Extract social/profile links from scraped text ─────────────────────────
 
 const extractLinksFromText = (text, firstName, lastName) => {
@@ -182,7 +236,7 @@ const extractLinksFromText = (text, firstName, lastName) => {
 // ─── Main Export ──────────────────────────────────────────────────────────────
 
 export const enrichProfile = async (prospect, discoveredIdentity, { callAI = askClaude, prospectContext = '' } = {}) => {
-  let { linkedinUrl, githubUrl, xUrl, telegramHandle, email } = discoveredIdentity;
+  let { linkedinUrl, githubUrl, xUrl, telegramHandle, email, website } = discoveredIdentity;
   const fullName = `${prospect.firstName} ${prospect.lastName || ''}`.trim();
 
   console.log(`[enrichment] Starting enrichment for ${fullName}`);
@@ -206,9 +260,43 @@ export const enrichProfile = async (prospect, discoveredIdentity, { callAI = ask
     console.log('[enrichment] ⚠️  No LinkedIn posts scraped — will rely on Serper snippets for recent activity');
   }
 
+  // Contact Info is scraped directly from the confirmed profile URL — authoritative
+  // by construction. Prefer it over anything mined later from generic web search,
+  // but a manually-provided rawEmail (already present in `email`) always wins.
+  if (linkedinResult?.contactInfo) {
+    if (!email && linkedinResult.contactInfo.email) {
+      email = linkedinResult.contactInfo.email;
+      console.log(`[enrichment] 🔗 Email from LinkedIn contact info: ${email}`);
+    }
+    if (!website && linkedinResult.contactInfo.website) {
+      website = linkedinResult.contactInfo.website;
+      console.log(`[enrichment] 🔗 Website from LinkedIn contact info: ${website}`);
+    }
+  }
+
+  // ── Step 1b: Anchor-filter the name-based snippets ──────────────────────────
+  // collectSnippets() is a pure name search — for a common name it will surface
+  // unrelated people. Only keep results that corroborate the confirmed LinkedIn
+  // slug, the known company, or a personal domain matching the person's name.
+  const linkedinSlug = extractLinkedinSlug(linkedinUrl);
+  const companyTokens = companyTokensOf(prospect.company);
+  const anchor = { companyTokens, linkedinSlug, firstName: prospect.firstName, lastName: prospect.lastName };
+
+  const linkedinSlugSnippets = linkedinSlug
+    ? snippets.filter((s) => s.source.toLowerCase().includes(linkedinSlug))
+    : [];
+  const nonLinkedinSnippets = snippets.filter((s) => !s.source.includes('linkedin.com'));
+  const corroboratedSnippets = nonLinkedinSnippets.filter((s) => matchesAnchor(s, anchor));
+
+  const droppedCount = nonLinkedinSnippets.length - corroboratedSnippets.length;
+  if (droppedCount > 0) {
+    console.log(`[enrichment] 🛡️  Dropped ${droppedCount} unanchored snippet(s) — no corroboration with confirmed profile (possible namesake)`);
+  }
+
   // ── Step 2: Scrape top non-LinkedIn/GitHub pages from search results ───────
   // These often contain personal websites, portfolios, dev.to, etc.
-  const scrapableUrls = snippets
+  // Only pages that already passed the anchor filter are worth the scrape budget.
+  const scrapableUrls = corroboratedSnippets
     .map((s) => s.source)
     .filter((url) =>
       !url.includes('linkedin.com') &&
@@ -303,23 +391,33 @@ export const enrichProfile = async (prospect, discoveredIdentity, { callAI = ask
     .join('\n\n---\n\n');
 
   // ── Step 3: Build prompt sections ─────────────────────────────────────────
+  // linkedinSection fallback: when the direct scrape fails, only trust Google-
+  // indexed snippets whose URL contains the EXACT confirmed profile slug — not
+  // just any linkedin.com link, which could belong to a different person
+  // entirely (a same-named profile, someone else's post, a company page).
   const linkedinSection = linkedinText
     ? `=== LINKEDIN PROFILE (directly scraped — most reliable) ===\n${clipPromptText(linkedinText, LINKEDIN_SECTION_LIMIT)}`
-    : `=== LINKEDIN SNIPPETS (Google indexed — LinkedIn scrape unavailable) ===
+    : linkedinSlugSnippets.length > 0
+    ? `=== LINKEDIN SNIPPETS (Google indexed — LinkedIn scrape unavailable, filtered to profile /in/${linkedinSlug} only) ===
 ${summarizeSnippets(
-  snippets.filter((s) => s.source.includes('linkedin')),
+  linkedinSlugSnippets,
   (s) => `Title: ${clipPromptText(s.title, 120)}\nSnippet: ${clipPromptText(s.snippet, SNIPPET_SECTION_LIMIT)}`
-)}`;
+)}`
+    : `=== LINKEDIN SNIPPETS ===
+No Google-indexed snippets matched the confirmed profile URL. Do not substitute snippets about a
+different linkedin.com profile — leave fields null instead of guessing.`;
 
-  const snippetSection = `=== OTHER SEARCH SNIPPETS ===
-${summarizeSnippets(
-  snippets.filter((s) => !s.source.includes('linkedin')),
-  (s) =>
-    `Source: ${s.source}\nTitle: ${clipPromptText(s.title, 120)}\nSnippet: ${clipPromptText(s.snippet, SNIPPET_SECTION_LIMIT)}`
-)}`;
+  const snippetSection = `=== OTHER SEARCH SNIPPETS (anchor-corroborated only — may still be a namesake, do NOT use for bio/location/experience) ===
+${corroboratedSnippets.length > 0
+  ? summarizeSnippets(
+      corroboratedSnippets,
+      (s) =>
+        `Source: ${s.source}\nTitle: ${clipPromptText(s.title, 120)}\nSnippet: ${clipPromptText(s.snippet, SNIPPET_SECTION_LIMIT)}`
+    )
+  : 'None — no search results could be corroborated against the confirmed identity.'}`;
 
   const extraSection = extraContent
-    ? `=== ADDITIONAL SCRAPED PAGES ===\n${extraContent}`
+    ? `=== ADDITIONAL SCRAPED PAGES (anchor-corroborated only — may still be a namesake, do NOT use for bio/location/experience) ===\n${extraContent}`
     : '';
 
   const linkedinActivitySection = linkedinPosts.length > 0
@@ -329,8 +427,15 @@ ${linkedinPosts.map((p, i) => `[Post ${i + 1}]\n${p}`).join('\n\n---\n\n')}`
 No posts could be scraped. Use Serper snippets tagged site:linkedin.com/posts below for any activity signals.
 Do NOT infer activities from your training data.`;
 
-  const userPrompt = `Build a comprehensive structured profile for this person.
-Use the scraped data as primary source. Fill in gaps using your general knowledge where the scraped data is sparse.
+  const userPrompt = `Build a comprehensive, detailed structured profile for this person, using the
+scraped data below. The "LINKEDIN PROFILE" / "LINKEDIN RECENT POSTS" / "GITHUB DATA" sections are
+CONFIRMED — they were scraped directly from this exact person's profile (${linkedinUrl || 'not resolved'},
+identity confidence ${discoveredIdentity.identityConfidenceScore ?? 'unknown'}/100). Read them
+closely and extract everything they contain — do not leave a field null if the CONFIRMED sections
+actually state it. "OTHER SEARCH SNIPPETS" / "ADDITIONAL SCRAPED PAGES" are UNVERIFIED (may
+describe a namesake) — use them only to add supplementary detail that doesn't conflict with the
+CONFIRMED sections, never as your primary source. Do not use general/pretrained knowledge about
+this specific person — their name may be shared by unrelated individuals online.
 
 === PERSON ===
 Name: ${fullName}
@@ -447,6 +552,7 @@ Return JSON:
     xUrl:            xUrl            || discoveredIdentity.xUrl,
     telegramHandle:  telegramHandle  || discoveredIdentity.telegramHandle,
     email:           email           || discoveredIdentity.email,
+    website:         website         || discoveredIdentity.website,
     ...enriched,
     ...(githubData && {
       githubStats: {

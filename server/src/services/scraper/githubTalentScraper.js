@@ -15,7 +15,7 @@ const getHeaders = () => {
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export const generateKeywords = async (description, preferredAiModel = 'auto') => {
+export const generateKeywords = async (description, preferredAiModel = 'gemini') => {
   if (!description?.trim()) return [];
 
   const systemPrompt = `You are a GitHub search query expert. Your goal is to generate 3 to 6 highly targeted search queries based on a user's talent requirement description.

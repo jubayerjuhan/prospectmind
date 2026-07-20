@@ -88,7 +88,7 @@ export default function CampaignsPage() {
     campaignDescription: '',
     targetEcosystemContext: '',
     targetPersonas: [],
-    preferredAiModel: 'auto',
+    preferredAiModel: 'gemini',
   });
   const [customPersonaInput, setCustomPersonaInput] = useState('');
 
@@ -276,7 +276,9 @@ export default function CampaignsPage() {
         campaignDescription: activeListData.campaignDescription || '',
         targetEcosystemContext: activeListData.targetEcosystemContext || '',
         targetPersonas: activeListData.targetPersonas || [],
-        preferredAiModel: activeListData.preferredAiModel || 'auto',
+        // Gemini is the only selectable provider for now (Groq on hold) — normalize
+        // older lists that may still have 'groq'/'auto' stored to the active choice.
+        preferredAiModel: 'gemini',
       });
     }
   }, [activeListData]);
@@ -1022,30 +1024,16 @@ export default function CampaignsPage() {
                 AI Model Preference
               </h2>
               <div className="bg-indigo-950/20 border border-indigo-900/40 rounded-lg p-3 text-xs text-indigo-300 leading-relaxed">
-                <strong>Which AI reads the scraped data?</strong> Choose the primary model for this campaign's pipeline runs. If the preferred model fails, the system automatically falls back to the next available provider.
+                <strong>Which AI reads the scraped data?</strong> Gemini is currently the only available provider for pipeline runs.
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {[
                   {
-                    value: 'auto',
-                    label: 'Auto',
-                    emoji: '⚡',
-                    description: 'Groq first, Gemini fallback',
-                    accent: 'indigo',
-                  },
-                  {
                     value: 'gemini',
                     label: 'Gemini',
                     emoji: '✨',
-                    description: 'Google Gemini first, Groq fallback',
+                    description: 'Google Gemini — active provider',
                     accent: 'violet',
-                  },
-                  {
-                    value: 'groq',
-                    label: 'Groq',
-                    emoji: '🔥',
-                    description: 'Groq only (no Gemini fallback)',
-                    accent: 'orange',
                   },
                 ].map(({ value, label, emoji, description, accent }) => {
                   const isSelected = campaignSettings.preferredAiModel === value;

@@ -46,7 +46,7 @@ export default function GithubTalentCampaignDetailPage() {
         talentDescription: campaign.talentDescription || '',
         targetEcosystemContext: campaign.targetEcosystemContext || '',
         maxRepos: campaign.maxRepos || 10,
-        preferredAiModel: campaign.preferredAiModel || 'auto'
+        preferredAiModel: 'gemini' // Gemini is the only active provider for now (Groq on hold)
       });
     }
   }, [campaign, settings]);

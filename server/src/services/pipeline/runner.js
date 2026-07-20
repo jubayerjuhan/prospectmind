@@ -98,8 +98,9 @@ export const runPipeline = async (prospectId) => {
     ? `Additional context provided by user about this person: ${prospect.description.trim()}`
     : '';
 
-  // Read the campaign's preferred AI model ('gemini' | 'groq' | 'auto')
-  const preferredAiModel = campaignList?.preferredAiModel || 'auto';
+  // Read the campaign's preferred AI model ('gemini' | 'groq' | 'auto').
+  // Groq is currently on hold (see claudeClient.js GROQ_ENABLED) — Gemini runs regardless.
+  const preferredAiModel = campaignList?.preferredAiModel || 'gemini';
   const { callAI, getProviderUsed } = buildAIContext(preferredAiModel);
 
   console.log(`🚀 Pipeline starting for: ${prospect.firstName} ${prospect.lastName} [AI: ${preferredAiModel}]`);

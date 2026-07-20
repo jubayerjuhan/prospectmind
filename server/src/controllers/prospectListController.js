@@ -397,7 +397,10 @@ export const updateProspectList = async (req, res) => {
       list.targetPersonas = req.body.targetPersonas.map((p) => String(p).trim()).filter(Boolean);
     }
 
-    const ALLOWED_AI_MODELS = ['gemini', 'groq', 'auto'];
+    // Groq is on hold — only 'gemini' is accepted for new writes. Existing lists
+    // that already have 'groq'/'auto' stored keep running (routed to Gemini
+    // anyway, see claudeClient.js GROQ_ENABLED) but can't be set again via API.
+    const ALLOWED_AI_MODELS = ['gemini'];
     if (req.body.preferredAiModel !== undefined) {
       if (!ALLOWED_AI_MODELS.includes(req.body.preferredAiModel)) {
         return res.status(400).json({

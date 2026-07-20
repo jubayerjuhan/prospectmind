@@ -50,7 +50,7 @@ export const generateOutreachMessages = async (prospect, enrichedProfile, classi
     targetPersonas,
   ].filter(Boolean).join('\n');
 
-  const preferredAiModel = campaignList?.preferredAiModel || 'auto';
+  const preferredAiModel = campaignList?.preferredAiModel || 'gemini';
 
   const availableChannels = [];
   if (enrichedProfile.email) availableChannels.push('email');

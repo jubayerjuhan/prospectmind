@@ -2,7 +2,7 @@
  * AI Client — smart router with per-campaign provider preference.
  *
  * askAI(options, { preferredProvider })
- *   preferredProvider: 'gemini' | 'groq' | 'auto' (default: 'auto')
+ *   preferredProvider: 'gemini' | 'groq' | 'auto' (default: 'gemini')
  *   Returns: { result, providerUsed: 'gemini' | 'groq' | 'fallback' }
  *
  * askClaude(options) — backward-compatible alias; returns result directly.
@@ -11,6 +11,11 @@
  *   'gemini' → Gemini first, fallback to Groq
  *   'groq'   → Groq first (no Gemini fallback beyond Groq's own chain)
  *   'auto'   → Groq first, then Gemini (original behavior)
+ *
+ * GROQ_ENABLED (below): Groq is temporarily held back org-wide — Gemini is the
+ * sole active provider regardless of a campaign's stored `preferredAiModel`.
+ * The full multi-provider routing logic below is left intact and untouched;
+ * flip GROQ_ENABLED back to true to re-integrate Groq without further changes.
  */
 
 import { askGroq } from './groqClient.js';
@@ -23,15 +28,33 @@ export class AIFallbackRequiredError extends Error {
   }
 }
 
+// Groq is on hold — kept fully implemented in groqClient.js and in the routing
+// branches below, but not called while this is false. Gemini is the only
+// provider actually invoked. Flip to true to restore Groq/auto/fallback routing.
+const GROQ_ENABLED = false;
+
 /**
  * Smart AI router.
  *
  * @param {object} options  - Prompt options forwarded to the underlying client
  * @param {object} [ctx]
- * @param {string} [ctx.preferredProvider='auto'] - 'gemini' | 'groq' | 'auto'
+ * @param {string} [ctx.preferredProvider='gemini'] - 'gemini' | 'groq' | 'auto'
  * @returns {{ result: any, providerUsed: 'gemini'|'groq'|'fallback' }}
  */
-export const askAI = async (options, { preferredProvider = 'auto' } = {}) => {
+export const askAI = async (options, { preferredProvider = 'gemini' } = {}) => {
+  // ── Groq on hold — Gemini-only, regardless of preferredProvider ────────────
+  if (!GROQ_ENABLED) {
+    if (!process.env.GEMINI_API_KEY) {
+      throw new AIFallbackRequiredError('GEMINI_API_KEY is not configured and Groq is currently disabled.');
+    }
+    try {
+      const result = await askGemini(options);
+      return { result, providerUsed: 'gemini' };
+    } catch (geminiError) {
+      throw new AIFallbackRequiredError(`Gemini failed (Groq is currently disabled): ${geminiError.message}`);
+    }
+  }
+
   // ── Gemini-preferred ──────────────────────────────────────────────────────
   if (preferredProvider === 'gemini') {
     // Try Gemini first; fall back to Groq if Gemini fails or key is missing

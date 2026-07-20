@@ -29,7 +29,7 @@ const githubTalentCampaignSchema = new mongoose.Schema(
     // Campaign context passed to the AI pipeline scorer
     campaignDescription: { type: String, default: '' },
     targetEcosystemContext: { type: String, default: '' },
-    preferredAiModel: { type: String, enum: ['gemini', 'groq', 'auto'], default: 'auto' },
+    preferredAiModel: { type: String, enum: ['gemini', 'groq', 'auto'], default: 'gemini' }, // Groq on hold — see claudeClient.js
     
     isArchived: { type: Boolean, default: false, index: true },
   },

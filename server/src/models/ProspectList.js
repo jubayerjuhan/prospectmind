@@ -22,7 +22,7 @@ const prospectListSchema = new mongoose.Schema(
     campaignDescription: { type: String, default: '' }, // Natural-language campaign goals for AI scoring/outreach
     targetEcosystemContext: { type: String, default: '' }, // Free-text ecosystem/context hint fed into the pipeline
     targetPersonas: [{ type: String, trim: true }], // Free-form persona labels (e.g. 'Startup', 'VC', 'Recruiter')
-    preferredAiModel: { type: String, enum: ['gemini', 'groq', 'auto'], default: 'auto' }, // Preferred AI provider for pipeline runs
+    preferredAiModel: { type: String, enum: ['gemini', 'groq', 'auto'], default: 'gemini' }, // Preferred AI provider for pipeline runs (Groq on hold — see claudeClient.js)
   },
   { timestamps: true }
 );

@@ -248,6 +248,41 @@ const scrapePageText = async (page, url) => {
   });
 };
 
+// ─── Contact Info Scraper ─────────────────────────────────────────────────────
+// LinkedIn exposes the "Contact info" modal at a dedicated overlay URL — no
+// click-through needed. Because this is scraped from the exact confirmed
+// profile URL, any email/website found here is authoritative by construction
+// (unlike email/website mined from generic name-based web search, which
+// requires the usernameMatchesName guard to avoid picking up a namesake).
+const scrapeContactInfo = async (page, linkedinUrl) => {
+  const contactUrl = linkedinUrl.replace(/\/$/, '') + '/overlay/contact-info/';
+  console.log('[linkedin] Scraping contact info:', contactUrl);
+
+  try {
+    const text = await scrapePageText(page, contactUrl);
+    if (!text) return null;
+
+    const emailMatch = text.match(/\b([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b/);
+    const websiteMatch = text.match(/https?:\/\/(?!(?:www\.)?linkedin\.com)[^\s)]+/i);
+
+    const contactInfo = {
+      email: emailMatch ? emailMatch[1] : null,
+      website: websiteMatch ? websiteMatch[0].replace(/[.,;]+$/, '') : null,
+    };
+
+    if (contactInfo.email || contactInfo.website) {
+      console.log('[linkedin] ✅ Contact info found:', contactInfo);
+    } else {
+      console.log('[linkedin] ⚠️  Contact info panel had no email/website');
+    }
+
+    return contactInfo;
+  } catch (err) {
+    console.warn('[linkedin] Contact info scrape failed (non-fatal):', err.message);
+    return null;
+  }
+};
+
 // ─── Profile Scraper ──────────────────────────────────────────────────────────
 
 const scrapeProfilePage = async (page, url) => {
@@ -255,7 +290,7 @@ const scrapeProfilePage = async (page, url) => {
   const mainText = await scrapePageText(page, url);
 
   if (!mainText) {
-    return { text: null, posts: [], sessionExpired: true };
+    return { text: null, posts: [], contactInfo: null, sessionExpired: true };
   }
 
   // 2. Also scrape the /details/experience/ sub-page (full timeline with dates)
@@ -272,6 +307,9 @@ const scrapeProfilePage = async (page, url) => {
   //  "Execution context was destroyed" crashes.)
   const posts = await scrapeActivityPage(page, url).catch(() => []);
 
+  // 5. Also scrape the Contact Info overlay — non-fatal, may be restricted/empty
+  const contactInfo = await scrapeContactInfo(page, url).catch(() => null);
+
   // Combine all sections
   const combined = [
     '=== MAIN PROFILE ===',
@@ -282,7 +320,7 @@ const scrapeProfilePage = async (page, url) => {
     eduText || '',
   ].filter(Boolean).join('\n');
 
-  return { text: combined, posts, sessionExpired: false };
+  return { text: combined, posts, contactInfo, sessionExpired: false };
 };
 
 // ─── Activity Feed Scraper ──────────────────────────────────────────────────────
@@ -428,12 +466,14 @@ export const scrapeLinkedInActivity = async (linkedinUrl) => {
  * Main export — scrapes profile + experience + education + activity feed
  * all in ONE browser session to avoid parallel-browser context crashes.
  *
- * Returns: { text: string|null, posts: string[] }
- *   text  — combined profile text for the AI enrichment prompt
- *   posts — array of recent LinkedIn post strings (may be empty)
+ * Returns: { text: string|null, posts: string[], contactInfo: {email, website}|null }
+ *   text        — combined profile text for the AI enrichment prompt
+ *   posts       — array of recent LinkedIn post strings (may be empty)
+ *   contactInfo — email/website scraped directly from this profile's Contact
+ *                 Info panel, authoritative since it's tied to the exact URL
  */
 export const scrapeLinkedIn = async (linkedinUrl) => {
-  if (!linkedinUrl) return { text: null, posts: [] };
+  if (!linkedinUrl) return { text: null, posts: [], contactInfo: null };
 
   const url = linkedinUrl.split('?')[0].replace(/\/$/, '');
   console.log(`[linkedin] Scraping: ${url}`);
@@ -457,12 +497,12 @@ export const scrapeLinkedIn = async (linkedinUrl) => {
       const loggedIn = await loginToLinkedIn(page);
       if (!loggedIn) {
         await browser.close();
-        return { text: null, posts: [] };
+        return { text: null, posts: [], contactInfo: null };
       }
     }
 
     // ── Scrape the profile (+ activity in the same session) ───────────────
-    let { text, posts, sessionExpired } = await scrapeProfilePage(page, url);
+    let { text, posts, contactInfo, sessionExpired } = await scrapeProfilePage(page, url);
 
     // ── Check if we're actually logged in (not just public view) ──────────
     const isLoggedOut = text && (
@@ -476,18 +516,19 @@ export const scrapeLinkedIn = async (linkedinUrl) => {
       const loggedIn = await loginToLinkedIn(page);
       if (!loggedIn) {
         await browser.close();
-        return { text: null, posts: [] };
+        return { text: null, posts: [], contactInfo: null };
       }
       const result = await scrapeProfilePage(page, url);
-      text  = result.text;
-      posts = result.posts;
+      text        = result.text;
+      posts       = result.posts;
+      contactInfo = result.contactInfo;
     }
 
     await browser.close();
 
     if (!text || text.length < 200) {
       console.warn('[linkedin] Profile text too short');
-      return { text: null, posts };
+      return { text: null, posts, contactInfo };
     }
 
     // Clean up text
@@ -500,11 +541,11 @@ export const scrapeLinkedIn = async (linkedinUrl) => {
       .slice(0, 5000);
 
     console.log(`[linkedin] ✅ Scraped ${cleaned.length} chars | ${posts.length} activity posts`);
-    return { text: cleaned, posts };
+    return { text: cleaned, posts, contactInfo };
 
   } catch (err) {
     console.error('[linkedin] Error:', err.message);
     if (browser) await browser.close().catch(() => {});
-    return { text: null, posts: [] };
+    return { text: null, posts: [], contactInfo: null };
   }
 };

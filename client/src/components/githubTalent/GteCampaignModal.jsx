@@ -14,7 +14,7 @@ export default function GteCampaignModal({ onClose }) {
     talentDescription: '',
     maxRepos: 10,
     targetEcosystemContext: '',
-    preferredAiModel: 'auto',
+    preferredAiModel: 'gemini',
   });
 
   const mutation = useMutation({
@@ -122,9 +122,7 @@ export default function GteCampaignModal({ onClose }) {
                   onChange={(e) => setFormData({ ...formData, preferredAiModel: e.target.value })}
                   className="w-full bg-slate-950 border border-slate-800 text-white px-4 py-2.5 rounded-xl focus:outline-none focus:border-indigo-500 transition appearance-none"
                 >
-                  <option value="auto">Auto (Groq → Gemini)</option>
-                  <option value="groq">Groq (Faster)</option>
-                  <option value="gemini">Gemini (Smarter)</option>
+                  <option value="gemini">Gemini</option>
                 </select>
               </div>
             </div>
