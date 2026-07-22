@@ -2,15 +2,42 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
-import { Save, Settings, Shield, Zap, Loader2 } from 'lucide-react';
+import { Save, Settings, Shield, Zap, Loader2, KeyRound, RefreshCw, ChevronDown } from 'lucide-react';
+import { useAuthStore } from '../stores/authStore';
 
 export default function SettingsPage() {
   const queryClient = useQueryClient();
-  
+  const user = useAuthStore((s) => s.user);
+  const canManageLinkedInSession = user?.role === 'owner' || user?.role === 'admin';
+
   // Settings local state
   const [name, setName] = useState('');
   const [autoEnrich, setAutoEnrich] = useState(false);
   const [outreachReviewRequired, setOutreachReviewRequired] = useState(true);
+
+  // LinkedIn session refresh state
+  const [liAt, setLiAt] = useState('');
+  const [jsessionId, setJsessionId] = useState('');
+  const [showJsessionField, setShowJsessionField] = useState(false);
+
+  const linkedInSessionQuery = useQuery({
+    queryKey: ['organization', 'linkedin-session'],
+    queryFn: () => api.get('/organization/linkedin-session').then((r) => r.data.data),
+    enabled: canManageLinkedInSession,
+  });
+
+  const refreshSessionMutation = useMutation({
+    mutationFn: () => api.post('/organization/linkedin-session', { liAt, jsessionId: jsessionId || undefined }),
+    onSuccess: () => {
+      toast.success('LinkedIn session refreshed and verified.');
+      setLiAt('');
+      setJsessionId('');
+      queryClient.invalidateQueries(['organization', 'linkedin-session']);
+    },
+    onError: (err) => {
+      toast.error(err.response?.data?.message || 'Failed to refresh LinkedIn session.');
+    },
+  });
 
   // Fetch organization settings
   const { data: orgData, isLoading } = useQuery({
@@ -146,6 +173,100 @@ export default function SettingsPage() {
             </label>
           </div>
         </div>
+
+        {/* LinkedIn Session Card (owner/admin only) */}
+        {canManageLinkedInSession && (
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
+            <h2 className="text-white font-semibold text-base flex items-center gap-2 border-b border-slate-800 pb-3">
+              <KeyRound size={18} className="text-indigo-400" />
+              LinkedIn Session
+            </h2>
+
+            <div className="bg-indigo-950/20 border border-indigo-900/40 rounded-lg p-3 text-xs text-indigo-300 leading-relaxed">
+              <strong>How this works:</strong> log into linkedin.com in your own browser, open DevTools →
+              Application → Cookies → <strong>https://www.linkedin.com</strong>, copy the value of the{' '}
+              <code className="bg-indigo-900/40 px-1 rounded">li_at</code> cookie, and paste it below. This
+              refreshes the shared session the scraper uses — no server access needed.
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Status:</span>
+              {linkedInSessionQuery.isLoading ? (
+                <Loader2 size={13} className="text-slate-500 animate-spin" />
+              ) : linkedInSessionQuery.data?.status === 'active' ? (
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 text-xs font-medium">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Active
+                </span>
+              ) : linkedInSessionQuery.data?.status === 'dead' ? (
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 text-xs font-medium">
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-400" /> Dead — needs refresh
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 text-xs font-medium">
+                  Not configured
+                </span>
+              )}
+              {linkedInSessionQuery.data?.lastVerifiedAt && (
+                <span className="text-slate-500 text-xs">
+                  · last verified {new Date(linkedInSessionQuery.data.lastVerifiedAt).toLocaleString()}
+                </span>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-slate-400 text-xs font-semibold uppercase tracking-wider mb-2">
+                li_at cookie
+              </label>
+              <input
+                type="password"
+                value={liAt}
+                onChange={(e) => setLiAt(e.target.value)}
+                placeholder="Paste the li_at cookie value"
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5 text-slate-200 text-sm font-mono focus:outline-none focus:border-indigo-500 transition"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowJsessionField((v) => !v)}
+              className="flex items-center gap-1 text-slate-500 hover:text-slate-300 text-xs transition"
+            >
+              <ChevronDown size={13} className={`transition-transform ${showJsessionField ? 'rotate-180' : ''}`} />
+              Optional: also set JSESSIONID
+            </button>
+
+            {showJsessionField && (
+              <div>
+                <label className="block text-slate-400 text-xs font-semibold uppercase tracking-wider mb-2">
+                  JSESSIONID cookie (optional)
+                </label>
+                <input
+                  type="text"
+                  value={jsessionId}
+                  onChange={(e) => setJsessionId(e.target.value)}
+                  placeholder="Paste the JSESSIONID cookie value"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5 text-slate-200 text-sm font-mono focus:outline-none focus:border-indigo-500 transition"
+                />
+              </div>
+            )}
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                disabled={!liAt.trim() || refreshSessionMutation.isPending}
+                onClick={() => refreshSessionMutation.mutate()}
+                className="flex items-center gap-2 px-5 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium rounded-lg text-sm transition"
+              >
+                {refreshSessionMutation.isPending ? (
+                  <Loader2 size={15} className="animate-spin" />
+                ) : (
+                  <RefreshCw size={15} />
+                )}
+                Refresh Session
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Submit Action */}
         <div className="flex justify-end">

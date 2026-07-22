@@ -9,6 +9,7 @@ import {
   AlertTriangle, Target, Zap, Star, Sparkles, Pause, Play, FileText
 } from 'lucide-react';
 import EditProspectModal from '../components/prospects/EditProspectModal';
+import MicButton from '../components/ui/MicButton';
 
 const ACTIVE_PIPELINE_STATUSES = ['pending', 'discovering', 'enriching', 'classifying', 'scoring', 'generating'];
 
@@ -716,6 +717,34 @@ export default function ProspectDetailPage() {
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
               <h3 className="text-white font-semibold mb-2">Profile Summary</h3>
               <p className="text-slate-400 text-sm leading-relaxed">{ep.bio}</p>
+
+              {(Array.isArray(p.personaBreakdown) && p.personaBreakdown.length > 0 || p.scoreReasoning) && (
+                <div className="mt-4 pt-4 border-t border-slate-800/70">
+                  <h4 className="text-indigo-300 text-xs font-semibold uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                    <Sparkles size={13} className="text-indigo-400" /> Campaign Relevance
+                  </h4>
+                  {Array.isArray(p.personaBreakdown) && p.personaBreakdown.length > 0 && (
+                    <div className="space-y-2 mb-2">
+                      {p.personaBreakdown.map((pb, idx) => (
+                        pb.campaignValue && (
+                          <p key={`${pb.persona || 'persona'}-${idx}`} className="text-slate-300 text-sm leading-relaxed">
+                            {pb.persona && (
+                              <span className="text-indigo-300 font-medium capitalize">{pb.persona}: </span>
+                            )}
+                            {pb.campaignValue}
+                          </p>
+                        )
+                      ))}
+                    </div>
+                  )}
+                  {p.scoreReasoning && (
+                    <p className="text-slate-400 text-sm leading-relaxed">
+                      <span className="text-slate-500 font-medium">Overall: </span>
+                      {p.scoreReasoning}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -853,7 +882,12 @@ export default function ProspectDetailPage() {
                       }`}>{msg.status}{msg.sentAt ? ` · ${new Date(msg.sentAt).toLocaleDateString()}` : ''}</span>
                     </div>
                     {msg.subject && (
-                      <p className="text-slate-400 text-xs mb-2 font-medium">Subject: {msg.subject}</p>
+                      <div className="mb-3 pb-3 border-b border-slate-800/70">
+                        <p className="text-slate-500 text-[11px] font-semibold uppercase tracking-wide mb-1">
+                          Subject
+                        </p>
+                        <p className="text-slate-100 text-sm font-medium leading-snug">{msg.subject}</p>
+                      </div>
                     )}
 
                     {editingMsg === msg._id ? (
@@ -942,7 +976,15 @@ export default function ProspectDetailPage() {
             )}
 
             <div className="mt-6 border-t border-slate-800 pt-6">
-              <label className="block text-sm font-medium text-slate-300 mb-2">Custom Generation Prompt (Optional)</label>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-medium text-slate-300">Custom Generation Prompt (Optional)</label>
+                <MicButton
+                  disabled={generateMutation.isPending || isProcessing}
+                  onTranscript={(text) =>
+                    setCustomPrompt((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text))
+                  }
+                />
+              </div>
               <textarea
                 className="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-slate-300 text-sm focus:outline-none focus:border-indigo-500 resize-none mb-3"
                 rows={3}

@@ -13,6 +13,7 @@ import { scrapeLinkedIn } from '../scraper/linkedinScraper.js';
 import { scrapePage } from '../scraper/pageScraper.js';
 import { clipPromptText } from './profileSnapshot.js';
 import { LinkedInAuthError } from '../../utils/pipelineErrors.js';
+import { notifyLinkedInSessionDead } from '../scraper/linkedinSessionAlert.js';
 
 const SYSTEM_PROMPT = `You are an expert B2B prospect research analyst.
 You are given real scraped data about ONE confirmed person, tied to a specific LinkedIn profile URL.
@@ -256,11 +257,13 @@ export const enrichProfile = async (prospect, discoveredIdentity, { callAI = ask
   // rather than enriching an empty profile (which would yield a meaningless score).
   if (linkedinUrl && linkedinResult?.authFailed) {
     const isCheckpoint = linkedinResult.reason === 'checkpoint';
-    const message = isCheckpoint
-      ? 'LinkedIn requires manual security verification (it showed a security challenge on login). '
-        + 'In the server folder run "npm run linkedin:login", complete the LinkedIn challenge in the browser window, then re-run this prospect.'
-      : 'LinkedIn session expired — the scraper is logged out, so this profile could not be read. '
-        + 'In the server folder run "npm run linkedin:login" to refresh the LinkedIn session, then re-run this prospect.';
+    const message = 'LinkedIn could not be authenticated automatically (a security challenge or dead session), '
+      + 'and the automatic browser-window recovery either timed out, was disabled, or could not run in this '
+      + 'environment. In the server folder run "npm run linkedin:login", complete the LinkedIn challenge in the '
+      + 'browser window, then re-run this prospect.';
+    await notifyLinkedInSessionDead(prospect.organization).catch((e) =>
+      console.warn('[enrichment] Failed to send LinkedIn session alert:', e.message)
+    );
     throw new LinkedInAuthError(message, { checkpoint: isCheckpoint });
   }
 
@@ -494,7 +497,7 @@ Return JSON:
   "founderExperience": true or false,
   "web3NativeScore": 0-100,
   "influenceLevel": "low|medium|high|very_high|unknown",
-  "bio": "1-2 sentence summary from the scraped content only",
+  "bio": "4-6 sentence detailed profile summary from the scraped content only — cover their current role, career trajectory/background, key areas of expertise or specialization, and any notable achievements or focus areas. Written in a professional, narrative style (not just a list).",
   "experience": [
     {
       "title": "job title — WORK ONLY, never education",

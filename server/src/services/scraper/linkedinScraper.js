@@ -3,39 +3,92 @@
  *
  * Flow:
  *  1. First run → Puppeteer logs in with LINKEDIN_EMAIL + LINKEDIN_PASSWORD
- *  2. Saves session cookies to .linkedin-session.json
+ *  2. Saves session cookies to MongoDB (LinkedInSession — a singleton doc)
  *  3. All future scrapes reuse saved session (no re-login needed)
  *  4. If session expires → auto re-login
+ *
+ * Session storage lives in MongoDB rather than a local file so it survives
+ * redeploys (ephemeral filesystems) and works if this ever runs on more than
+ * one server instance.
  *
  * Full profile data: experience with titles + dates, skills, education, about, etc.
  */
 
 import puppeteer from 'puppeteer';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import { askClaude } from '../ai/claudeClient.js';
+import { getProxy } from './proxyRotator.js';
+import LinkedInSession from '../../models/LinkedInSession.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const SESSION_FILE = path.join(__dirname, '../../../../.linkedin-session.json');
+// ─── Session Persistence (MongoDB, singleton doc) ────────────────────────────
 
-// ─── Session Persistence ──────────────────────────────────────────────────────
+// CDP's getAllCookies (page.cookies()) returns output-only fields like
+// `partitionKey`, `size`, `session`, `priority`, `sourceScheme`, `sourcePort`
+// that Network.setCookies either ignores or, in the case of `partitionKey`,
+// fails to deserialize ("CBOR: map start expected") because the captured shape
+// (a string) doesn't match the map shape setCookies expects. Keep only the
+// fields setCookies actually accepts. LinkedIn's auth cookies (li_at,
+// JSESSIONID, bcookie…) are never partitioned, so dropping partitionKey is safe.
+const sanitizeCookies = (cookies) =>
+  (cookies || [])
+    .filter((c) => c && c.name)
+    .map(({ name, value, url, domain, path, secure, httpOnly, sameSite, expires }) => {
+      const clean = { name, value };
+      if (url) clean.url = url;
+      if (domain) clean.domain = domain;
+      if (path) clean.path = path;
+      if (typeof secure === 'boolean') clean.secure = secure;
+      if (typeof httpOnly === 'boolean') clean.httpOnly = httpOnly;
+      if (sameSite) clean.sameSite = sameSite;
+      if (typeof expires === 'number' && expires > 0) clean.expires = expires;
+      return clean;
+    });
 
-const saveSession = (cookies) => {
+// Build the minimal LinkedIn auth cookie set from a raw li_at (+ optional
+// JSESSIONID). li_at alone is enough to authenticate; JSESSIONID is only needed
+// for write actions we never perform. Shared by the env-seed path and the
+// admin "paste a cookie" Settings flow so both produce identical cookies.
+const buildAuthCookies = ({ liAt, jsessionId }) => {
+  const oneYear = Math.floor(Date.now() / 1000) + 365 * 24 * 3600;
+  const cookies = [
+    { name: 'li_at', value: liAt, domain: '.linkedin.com', path: '/', expires: oneYear, httpOnly: true, secure: true, sameSite: 'None' },
+  ];
+  if (jsessionId) {
+    cookies.push({
+      name: 'JSESSIONID', value: jsessionId.replace(/"/g, ''), domain: '.linkedin.com',
+      path: '/', expires: oneYear, secure: true, sameSite: 'None',
+    });
+  }
+  return cookies;
+};
+
+const saveSession = async (cookies) => {
   try {
-    fs.writeFileSync(SESSION_FILE, JSON.stringify(cookies, null, 2));
-    console.log('[linkedin] ✅ Session saved to .linkedin-session.json');
+    await LinkedInSession.findOneAndUpdate(
+      {},
+      {
+        cookies: sanitizeCookies(cookies),
+        status: 'active',
+        lastVerifiedAt: new Date(),
+        // Reconcile the env-cookie marker on every save: once a session is
+        // established by ANY means, the current env li_at is considered
+        // "consumed", so we won't stomp this good jar with it next run — only a
+        // later edit to LINKEDIN_LI_AT (marker !== env) triggers a re-seed.
+        seedLiAt: process.env.LINKEDIN_LI_AT || null,
+      },
+      { upsert: true }
+    );
+    console.log('[linkedin] ✅ Session saved to database');
   } catch (e) {
     console.warn('[linkedin] Could not save session:', e.message);
   }
 };
 
-const loadSession = () => {
+const loadSession = async () => {
   try {
-    if (fs.existsSync(SESSION_FILE)) {
-      const cookies = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf-8'));
-      console.log('[linkedin] Loaded saved session from file');
-      return cookies;
+    const doc = await LinkedInSession.findOne({});
+    if (doc?.cookies?.length) {
+      console.log('[linkedin] Loaded saved session from database');
+      return sanitizeCookies(doc.cookies);
     }
   } catch (e) {
     console.warn('[linkedin] Could not load session:', e.message);
@@ -43,33 +96,43 @@ const loadSession = () => {
   return null;
 };
 
-const clearSession = () => {
+const clearSession = async () => {
   try {
-    if (fs.existsSync(SESSION_FILE)) {
-      fs.unlinkSync(SESSION_FILE);
-      console.log('[linkedin] Cleared stale session file');
-    }
+    await LinkedInSession.findOneAndUpdate({}, { cookies: null, status: 'dead' }, { upsert: true });
+    console.log('[linkedin] Cleared stale session in database');
   } catch (e) {
     console.warn('[linkedin] Could not clear session:', e.message);
   }
 };
 
 // ─── Browser Factory ──────────────────────────────────────────────────────────
+// Routes through a rotating Webshare proxy by default — reduces how often
+// LinkedIn's bot detection flags this traffic vs. the server's raw IP. Set
+// LINKEDIN_USE_PROXY=false to disable (e.g. while troubleshooting).
 
-const launchBrowser = () =>
-  puppeteer.launch({
-    headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-blink-features=AutomationControlled',
-      '--disable-dev-shm-usage',
-      '--window-size=1280,900',
-    ],
-  });
+const USE_PROXY = process.env.LINKEDIN_USE_PROXY !== 'false';
 
-const setupPage = async (browser) => {
+const launchBrowser = async () => {
+  const proxy = USE_PROXY ? await getProxy().catch(() => null) : null;
+
+  const args = [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-blink-features=AutomationControlled',
+    '--disable-dev-shm-usage',
+    '--window-size=1280,900',
+  ];
+  if (proxy) args.push(`--proxy-server=${proxy.host}:${proxy.port}`);
+
+  const browser = await puppeteer.launch({ headless: true, args });
+  return { browser, proxy };
+};
+
+const setupPage = async (browser, proxy = null) => {
   const page = await browser.newPage();
+  if (proxy) {
+    await page.authenticate({ username: proxy.username, password: proxy.password });
+  }
   await page.setViewport({ width: 1280, height: 900 });
   await page.setUserAgent(
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
@@ -228,12 +291,84 @@ const loginToLinkedIn = async (page) => {
     console.log('[linkedin] ✅ Login successful');
     // Save session cookies
     const cookies = await page.cookies();
-    saveSession(cookies);
+    await saveSession(cookies);
     return { ok: true, reason: 'ok' };
   }
 
   console.warn('[linkedin] Login may have failed — URL:', url);
   return { ok: false, reason: 'failed' };
+};
+
+// ─── Interactive (visible-browser) Login Fallback ────────────────────────────
+// LinkedIn's bot detection trips a security checkpoint on almost every headless
+// credential login these days, so the automated path in loginToLinkedIn() above
+// frequently can't recover a dead session on its own. Rather than just failing
+// the pipeline and telling the user to go run a separate terminal command, open
+// a REAL, visible Chrome window right here and wait for a human to log in and
+// clear whatever challenge LinkedIn shows. Once the window reaches the feed, we
+// capture the session cookies and continue automatically — no separate script,
+// no manual terminal command.
+//
+// This only works when the process has a real desktop to draw a window on (i.e.
+// a local dev machine). Set LINKEDIN_INTERACTIVE_LOGIN=false to disable it (e.g.
+// on a headless server), in which case we fall straight through to the existing
+// "run npm run linkedin:login manually" error.
+const INTERACTIVE_LOGIN_ENABLED = process.env.LINKEDIN_INTERACTIVE_LOGIN !== 'false';
+const INTERACTIVE_LOGIN_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes to finish login + any challenge
+const INTERACTIVE_LOGIN_POLL_MS = 3000;
+
+const openInteractiveLoginWindow = async () => {
+  console.log('[linkedin] 🖥️  Opening a visible LinkedIn login window — please log in and complete any security check.');
+  console.log(`[linkedin]     Waiting up to ${INTERACTIVE_LOGIN_TIMEOUT_MS / 60000} minutes for you to reach your feed...`);
+
+  let browser;
+  try {
+    browser = await puppeteer.launch({
+      headless: false,
+      defaultViewport: null,
+      args: ['--disable-blink-features=AutomationControlled', '--window-size=1300,920'],
+    });
+  } catch (e) {
+    console.warn('[linkedin] Could not open a visible browser window in this environment:', e.message);
+    return false;
+  }
+
+  try {
+    const page = (await browser.pages())[0] || (await browser.newPage());
+    await page.setUserAgent(
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+    );
+    await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
+
+    const client = await page.createCDPSession();
+    await client.send('Network.clearBrowserCookies');
+
+    await page.goto('https://www.linkedin.com/login', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+
+    // Purely passive polling — we never navigate the page ourselves after this,
+    // so whatever the human is doing (typing, solving a captcha, an app-approval
+    // prompt) is never interrupted.
+    const deadline = Date.now() + INTERACTIVE_LOGIN_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, INTERACTIVE_LOGIN_POLL_MS));
+      const url = page.url();
+      if (url.includes('/feed') && !/authwall|\/login|checkpoint|uas\/login|signup/i.test(url)) {
+        const cookies = await page.cookies();
+        await saveSession(cookies);
+        console.log('[linkedin] ✅ Manual login detected — session saved. Continuing automatically.');
+        await browser.close();
+        return true;
+      }
+    }
+
+    console.warn('[linkedin] ⏱️  Timed out waiting for manual LinkedIn login.');
+    await browser.close();
+    return false;
+  } catch (e) {
+    console.warn('[linkedin] Interactive login window error:', e.message);
+    await browser.close().catch(() => {});
+    return false;
+  }
 };
 
 // ─── Auth Verification ────────────────────────────────────────────────────────
@@ -257,6 +392,35 @@ const verifyLoggedIn = async (page) => {
     console.warn('[linkedin] verifyLoggedIn error:', e.message);
     return false;
   }
+};
+
+// ─── Env-provided session (authoritative) ────────────────────────────────────
+// If LINKEDIN_LI_AT is set in .env, it is the single source of truth for the
+// scraping identity: we apply it on every run (so updating the cookie in .env
+// takes effect immediately), verify it, and only fall back to saved-session /
+// password / interactive login when the env cookie is missing or expired.
+// Copy a fresh li_at from a logged-in browser (DevTools → Application → Cookies)
+// whenever this stops authenticating.
+const seedSessionFromEnv = async (page) => {
+  const liAt = process.env.LINKEDIN_LI_AT;
+  if (!liAt) return false;
+
+  const cookies = buildAuthCookies({ liAt, jsessionId: process.env.LINKEDIN_JSESSIONID });
+  try {
+    const cdp = await page.createCDPSession();
+    await cdp.send('Network.setCookies', { cookies });
+  } catch (e) {
+    console.warn('[linkedin] Could not apply LINKEDIN_LI_AT cookie:', e.message);
+    return false;
+  }
+
+  if (await verifyLoggedIn(page)) {
+    console.log('[linkedin] ✅ Authenticated via LINKEDIN_LI_AT from .env');
+    await saveSession(cookies);
+    return true;
+  }
+  console.warn('[linkedin] ⚠️  LINKEDIN_LI_AT did not authenticate (expired?) — falling back to saved session / login');
+  return false;
 };
 
 // ─── Scrape a single page and return cleaned innerText ───────────────────────
@@ -497,14 +661,17 @@ export const scrapeLinkedInActivity = async (linkedinUrl) => {
 
   let browser;
   try {
-    browser = await launchBrowser();
-    const page = await setupPage(browser);
+    const launched = await launchBrowser();
+    browser = launched.browser;
+    const page = await setupPage(browser, launched.proxy);
 
-    const savedCookies = loadSession();
+    // Prefer the rich saved session (durable); fall back to the env li_at
+    // bootstrap, then a full login — same preference order as scrapeLinkedIn.
+    const savedCookies = await loadSession();
     if (savedCookies) {
       const cdp = await page.createCDPSession();
       await cdp.send('Network.setCookies', { cookies: savedCookies });
-    } else {
+    } else if (!(await seedSessionFromEnv(page))) {
       const { ok } = await loginToLinkedIn(page);
       if (!ok) {
         await browser.close();
@@ -540,41 +707,73 @@ export const scrapeLinkedIn = async (linkedinUrl) => {
 
   let browser;
   try {
-    browser = await launchBrowser();
-    const page = await setupPage(browser);
+    const launched = await launchBrowser();
+    browser = launched.browser;
+    const page = await setupPage(browser, launched.proxy);
 
-    // ── Try saved session or login fresh ─────────────────────────────────
-    const savedCookies = loadSession();
+    // ── Establish an authenticated session ────────────────────────────────
+    // Steady state uses the rich, self-refreshing saved jar (companion cookies
+    // intact, tokens as LinkedIn last rotated them) — far more durable than a
+    // bare li_at, which LinkedIn is quick to revoke. The env LINKEDIN_LI_AT is a
+    // bootstrap/override: it seeds a session when none is saved and re-seeds
+    // ONLY when you change it in .env (marker !== env). Every candidate is
+    // verified against /feed/ first, since a cookie can be timestamp-valid but
+    // revoked server-side (LinkedIn then serves a login wall inline).
+    let loginReason = null;
+    let loggedIn = false;
 
-    if (savedCookies) {
-      // Restore saved session
+    const doc = await LinkedInSession.findOne({});
+    const savedCookies = sanitizeCookies(doc?.cookies);
+    const envLiAt = process.env.LINKEDIN_LI_AT || null;
+    const envChanged = !!envLiAt && envLiAt !== (doc?.seedLiAt || null);
+
+    const restoreSaved = async (label) => {
       const cdp = await page.createCDPSession();
       await cdp.send('Network.setCookies', { cookies: savedCookies });
-      console.log('[linkedin] Using saved session');
-    } else {
-      // No session — must login first
-      console.log('[linkedin] No saved session — logging in');
-      const login = await loginToLinkedIn(page);
-      if (!login.ok) {
-        console.warn('[linkedin] ❌ Initial login failed — cannot scrape while logged out');
-        await browser.close();
-        return { text: null, posts: [], contactInfo: null, authFailed: true, reason: login.reason };
-      }
+      console.log(`[linkedin] ${label}`);
+      return verifyLoggedIn(page);
+    };
+
+    // 1) Prefer the saved session, unless the env cookie was just changed.
+    if (savedCookies.length && !envChanged) {
+      loggedIn = await restoreSaved('Using saved session');
     }
 
-    // ── Verify we are ACTUALLY logged in BEFORE scraping any profile ───────
-    // A saved cookie can be timestamp-valid but revoked server-side, in which
-    // case LinkedIn serves a localized login wall inline at the profile URL.
-    // Checking /feed/ up front avoids ever enriching that wall as if it were data.
-    let loginReason = null;
-    let loggedIn = await verifyLoggedIn(page);
+    // 2) Seed from env li_at — first-time bootstrap, or you pasted a new cookie.
+    if (!loggedIn && envLiAt) {
+      if (envChanged) console.log('[linkedin] LINKEDIN_LI_AT changed in .env — re-seeding session');
+      loggedIn = await seedSessionFromEnv(page);
+    }
+
+    // 3) Env cookie failed but a saved jar exists — try it before a full login.
+    if (!loggedIn && savedCookies.length && envChanged) {
+      loggedIn = await restoreSaved('Env cookie failed — falling back to saved session');
+    }
+
+    // 4) Nothing usable — clear and do a fresh email/password login.
     if (!loggedIn) {
-      console.log('[linkedin] ⚠️  Saved session is not authenticated — clearing and re-logging in');
-      clearSession();
+      console.log('[linkedin] ⚠️  No usable session — clearing and logging in');
+      await clearSession();
       const login = await loginToLinkedIn(page);
       loginReason = login.reason;
       loggedIn = login.ok && (await verifyLoggedIn(page));
     }
+
+    // ── Last resort: automated login keeps tripping LinkedIn's bot detection.
+    // Open a real, visible browser window and let a human clear the checkpoint,
+    // then load that freshly-saved session into THIS headless page and retry.
+    if (!loggedIn && INTERACTIVE_LOGIN_ENABLED) {
+      const recovered = await openInteractiveLoginWindow();
+      if (recovered) {
+        const freshCookies = await loadSession();
+        if (freshCookies) {
+          const cdp = await page.createCDPSession();
+          await cdp.send('Network.setCookies', { cookies: freshCookies });
+          loggedIn = await verifyLoggedIn(page);
+        }
+      }
+    }
+
     if (!loggedIn) {
       console.warn('[linkedin] ❌ Could not establish an authenticated session — aborting (will NOT scrape logged-out)');
       await browser.close();
@@ -591,6 +790,16 @@ export const scrapeLinkedIn = async (linkedinUrl) => {
       console.warn('[linkedin] ❌ Auth wall appeared during profile scrape — aborting');
       await browser.close();
       return { text: null, posts: [], contactInfo: null, authFailed: true };
+    }
+
+    // Persist the jar AS IT NOW STANDS. LinkedIn rotates session tokens during a
+    // visit; capturing the live cookies (full companion set included) and saving
+    // them keeps the stored session current, so the next run resumes a fresh
+    // session instead of replaying a stale one that gets revoked.
+    try {
+      await saveSession(await page.cookies());
+    } catch (e) {
+      console.warn('[linkedin] Could not persist refreshed session:', e.message);
     }
 
     await browser.close();
@@ -616,5 +825,40 @@ export const scrapeLinkedIn = async (linkedinUrl) => {
     console.error('[linkedin] Error:', err.message);
     if (browser) await browser.close().catch(() => {});
     return { text: null, posts: [], contactInfo: null, authFailed: false };
+  }
+};
+
+// ─── Admin-triggered Session Refresh (headless-safe) ─────────────────────────
+// Lets an admin paste a li_at cookie (copied from their own logged-in browser)
+// from the Settings page to fix a dead session without any server/terminal
+// access — this is the one recovery path that works in a headless production
+// deployment, since it never performs a login action, just resumes an
+// already-trusted session.
+export const refreshLinkedInSessionFromCookie = async ({ liAt, jsessionId, updatedBy }) => {
+  const cookies = buildAuthCookies({ liAt, jsessionId });
+
+  let browser;
+  try {
+    const launched = await launchBrowser();
+    browser = launched.browser;
+    const page = await setupPage(browser, launched.proxy);
+
+    const cdp = await page.createCDPSession();
+    await cdp.send('Network.setCookies', { cookies });
+
+    const loggedIn = await verifyLoggedIn(page);
+    await browser.close();
+
+    if (!loggedIn) {
+      return { ok: false, message: 'That cookie did not authenticate — copy a fresh li_at from a logged-in browser and try again.' };
+    }
+
+    await saveSession(cookies);
+    await LinkedInSession.findOneAndUpdate({}, { updatedBy, status: 'active' });
+    console.log('[linkedin] ✅ Session refreshed via admin-provided cookie');
+    return { ok: true };
+  } catch (err) {
+    if (browser) await browser.close().catch(() => {});
+    return { ok: false, message: err.message };
   }
 };

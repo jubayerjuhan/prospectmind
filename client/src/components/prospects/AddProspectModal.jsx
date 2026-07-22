@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../../lib/api';
 import toast from 'react-hot-toast';
 import { X, Zap, ArrowRight, AlertTriangle } from 'lucide-react';
+import MicButton from '../ui/MicButton';
 
 /* ── Upgrade wall shown when the plan limit is hit ──────────────────── */
 function UpgradePrompt({ onClose }) {
@@ -145,9 +146,19 @@ export default function AddProspectModal({ onClose, onCreated, campaignContext =
 
           {/* Description — the key new field */}
           <div>
-            <label className="text-slate-400 text-xs block mb-1">
-              Additional Context <span className="text-slate-600">(optional)</span>
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-slate-400 text-xs">
+                Additional Context <span className="text-slate-600">(optional)</span>
+              </label>
+              <MicButton
+                onTranscript={(text) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    description: prev.description.trim() ? `${prev.description.trim()} ${text}` : text,
+                  }))
+                }
+              />
+            </div>
             <textarea
               className="input-field resize-none"
               rows={3}

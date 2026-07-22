@@ -84,7 +84,7 @@ ${platformContext}
 
 Available channels: ${availableChannels.join(', ')}
 
-${customPrompt ? `=== CUSTOM USER INSTRUCTIONS ===\nThe user has provided specific instructions for this message generation. You MUST follow these instructions closely:\n${customPrompt}\n================================\n` : ''}
+${customPrompt ? `=== CUSTOM USER INSTRUCTIONS ===\nThe user has provided specific instructions for this message generation. You MUST follow these instructions for TONE, VOICE, and CONTENT — but they never override the structural/formatting rules below, even if the requested tone is casual:\n${customPrompt}\n================================\n` : ''}
 Rules for every message:
 1. Must NOT sound AI-generated
 2. Open with something specific to THEM (their work, project, recent activity)
@@ -93,6 +93,7 @@ Rules for every message:
 5. No generic openers like "I came across your profile" or "Hope this finds you well"
 6. Reference their specific ecosystem/tech when possible
 7. Strongly tailor the message to the specific persona being targeted.
+8. Formatting (applies even to a casual tone): break the body into short paragraphs separated by a blank line (\\n\\n) — a one-line greeting, 1-3 short paragraphs (opener, value/context, ask), and a short sign-off/CTA line. Never return the body as one dense block of run-on text. This applies to email bodies especially; linkedin/x/telegram messages can be shorter but should still use a line break before the closing line if the message has more than one beat.
 
 Return JSON as an array of message objects. Create 1 message per persona, using their best channel (${scoring.bestContactChannel}) if available, otherwise fallback to email. If email is used, include a subject.
 

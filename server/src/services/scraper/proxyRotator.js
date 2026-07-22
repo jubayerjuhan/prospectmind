@@ -3,9 +3,14 @@
  * Parses Webshare proxy list and rotates through them randomly.
  * Format: IP:PORT:USERNAME:PASSWORD
  */
+import net from 'net';
 
 // ── Proxy list (from Webshare) ────────────────────────────────────────────────
-const RAW_PROXIES = [
+// Configure via WEBSHARE_PROXIES in .env — comma-separated "host:port:user:pass"
+// entries — so proxies can be added/rotated/removed without touching source or
+// redeploying. Falls back to this hardcoded list (today's known-working set)
+// when the env var isn't set, so nothing breaks with zero config changes.
+const DEFAULT_RAW_PROXIES = [
   '38.154.203.95:5863:olfnrjae:c91tmxlgy03y',
   '198.105.121.200:6462:olfnrjae:c91tmxlgy03y',
   '64.137.96.74:6641:olfnrjae:c91tmxlgy03y',
@@ -17,6 +22,10 @@ const RAW_PROXIES = [
   '31.58.9.4:6077:olfnrjae:c91tmxlgy03y',
   '64.137.10.153:5803:olfnrjae:c91tmxlgy03y',
 ];
+
+const RAW_PROXIES = process.env.WEBSHARE_PROXIES
+  ? process.env.WEBSHARE_PROXIES.split(',').map((p) => p.trim()).filter(Boolean)
+  : DEFAULT_RAW_PROXIES;
 
 // Parse into structured objects
 const PROXIES = RAW_PROXIES.map((line) => {
@@ -32,18 +41,53 @@ const PROXIES = RAW_PROXIES.map((line) => {
 
 let lastIndex = -1;
 
+// ── Health check ───────────────────────────────────────────────────────────
+// Webshare proxies in this list rot over time (measured 4/10 dead in practice).
+// A plain random pick would hand back a dead one ~40% of the time and silently
+// break that scrape. Do a cheap one-time TCP-reachability check per process
+// lifetime and only rotate through proxies that actually accept a connection.
+const HEALTH_CHECK_TIMEOUT_MS = 3000;
+
+const isReachable = (host, port) =>
+  new Promise((resolve) => {
+    const socket = net.createConnection({ host, port, timeout: HEALTH_CHECK_TIMEOUT_MS });
+    socket.once('connect', () => { socket.destroy(); resolve(true); });
+    socket.once('timeout', () => { socket.destroy(); resolve(false); });
+    socket.once('error', () => resolve(false));
+  });
+
+let healthyProxiesPromise = null;
+
+const getHealthyProxies = () => {
+  if (!healthyProxiesPromise) {
+    healthyProxiesPromise = (async () => {
+      const results = await Promise.all(
+        PROXIES.map(async (proxy) => ({ proxy, ok: await isReachable(proxy.host, proxy.port) }))
+      );
+      const healthy = results.filter((r) => r.ok).map((r) => r.proxy);
+      console.log(`[proxy] Health check: ${healthy.length}/${PROXIES.length} proxies reachable`);
+      // Never return an empty list — fall back to the raw list rather than
+      // disabling proxy use entirely if the health check itself is unreliable.
+      return healthy.length > 0 ? healthy : PROXIES;
+    })();
+  }
+  return healthyProxiesPromise;
+};
+
 /**
- * Get a random proxy (avoids repeating the same one twice in a row)
+ * Get a random healthy proxy (avoids repeating the same one twice in a row).
+ * Async because the first call runs the one-time health check.
  */
-export const getProxy = () => {
+export const getProxy = async () => {
+  const proxies = await getHealthyProxies();
   let index;
   do {
-    index = Math.floor(Math.random() * PROXIES.length);
-  } while (index === lastIndex && PROXIES.length > 1);
+    index = Math.floor(Math.random() * proxies.length);
+  } while (index === lastIndex && proxies.length > 1);
 
   lastIndex = index;
-  const proxy = PROXIES[index];
-  console.log(`[proxy] Using proxy ${index + 1}/${PROXIES.length}: ${proxy.host}:${proxy.port}`);
+  const proxy = proxies[index];
+  console.log(`[proxy] Using proxy ${index + 1}/${proxies.length}: ${proxy.host}:${proxy.port}`);
   return proxy;
 };
 

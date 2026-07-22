@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import toast from 'react-hot-toast';
 import { X, Save, Loader2 } from 'lucide-react';
+import MicButton from '../ui/MicButton';
 
 /**
  * Edit Prospect Modal
@@ -65,9 +66,19 @@ export default function EditProspectModal({ prospect, onClose, onUpdated }) {
 
           {/* Description — the most important new field */}
           <div>
-            <label className="text-slate-400 text-xs font-semibold uppercase tracking-wider block mb-2">
-              Additional Context
-            </label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-slate-400 text-xs font-semibold uppercase tracking-wider">
+                Additional Context
+              </label>
+              <MicButton
+                onTranscript={(text) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    description: prev.description.trim() ? `${prev.description.trim()} ${text}` : text,
+                  }))
+                }
+              />
+            </div>
             <p className="text-slate-600 text-xs mb-2 leading-relaxed">
               Add background info you have about this person. The AI will use this as verified context
               when enriching their profile — it won't contradict scraped data, but will fill in gaps.

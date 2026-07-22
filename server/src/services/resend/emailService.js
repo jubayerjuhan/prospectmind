@@ -100,6 +100,38 @@ export const sendPasswordResetEmail = async ({ name, email, resetUrl }) => {
   });
 };
 
+/* ── LinkedIn session expired (ops alert) ──────────────────────────── */
+export const sendLinkedInSessionExpiredEmail = async ({ name, email }) => {
+  return resend.emails.send({
+    from: FROM,
+    to: email,
+    subject: '⚠️ LinkedIn session needs a refresh — ProspectMind',
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 40px 20px;">
+        <div style="margin-bottom: 24px;">
+          <div style="display: inline-flex; align-items: center; gap: 8px;">
+            <div style="width: 32px; height: 32px; background: #6366f1; border-radius: 8px; display: inline-block;"></div>
+            <span style="font-size: 18px; font-weight: 700; color: #0f172a;">ProspectMind</span>
+          </div>
+        </div>
+        <h1 style="color: #0f172a; font-size: 24px; margin-bottom: 12px;">LinkedIn session needs a refresh</h1>
+        <p style="color: #64748b; font-size: 15px; line-height: 1.6; margin-bottom: 20px;">
+          Hi ${name}, the LinkedIn scraping session died (a security checkpoint or expired cookie) and automatic
+          recovery couldn't fix it. Prospect enrichment involving LinkedIn is paused until it's refreshed.
+        </p>
+        <p style="color: #64748b; font-size: 15px; line-height: 1.6; margin-bottom: 28px;">
+          Fix it from Settings: log into linkedin.com in your own browser, copy the <code>li_at</code> cookie
+          (DevTools → Application → Cookies), and paste it into the LinkedIn Session card.
+        </p>
+        <a href="${process.env.CLIENT_URL}/settings"
+           style="display: inline-block; padding: 14px 28px; background: #6366f1; color: white; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 15px;">
+          Open Settings →
+        </a>
+      </div>
+    `,
+  });
+};
+
 /* ── Outreach ─────────────────────────────────────────────────────── */
 export const sendOutreachEmail = async ({ to, subject, body, fromName }) => {
   return resend.emails.send({
