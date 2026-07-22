@@ -1,7 +1,36 @@
 # Current TODOs
 
-**Last updated:** 2026-05-27 (Priority 2 complete)
-**Focus:** Get the app running end-to-end for the first time.
+**Last updated:** 2026-07-22 (added Priority 0 — architecture redesign)
+**Focus:** Stakeholder handed down a new high-level design (see `docs/status/redesign-v2.md`). It's a significant pivot — Company as its own module, user-defined Personas/Playbooks/Signals instead of hardcoded Web3 prompts, Campaigns as a separate orchestration layer. Priority 0 below is that plan, ordered. Everything under Priority 1+ is the pre-existing MVP polish list and still applies in parallel.
+
+---
+
+## ⭐ Priority 0 — Architecture Redesign (stakeholder HLD, 2026-07-22)
+
+**Full plan:** `docs/status/redesign-v2.md` — read this before starting any of the below.
+
+Not started. Suggested order:
+
+- [ ] **Phase A — Company as a first-class module**
+  - [ ] `Company` model + controller + routes (CRUD + analyze)
+  - [ ] Migrate `Prospect.company` (string) → ref, with backfill script for existing docs
+  - [ ] Point discovery/enrichment at `Company` for company-level data
+- [ ] **Phase B — Settings: Persona / Playbook / Signal**
+  - [ ] `Persona`, `Playbook`, `Signal` models + CRUD routes/controllers
+  - [ ] Real Settings page UI (currently a placeholder)
+  - [ ] Seed each org with GoodHive's current hardcoded prompts as defaults so behavior doesn't regress
+- [ ] **Phase C — Dynamic pipeline**
+  - [ ] Replace hardcoded classifier/scorer prompts with a loop over active Personas → `personaScores[]`
+  - [ ] Add a Signal-detection layer
+  - [ ] Make outreach generation Playbook-driven
+- [ ] **Phase D — Campaign module**
+  - [ ] `Campaign` model + controller/routes + execution service
+  - [ ] Campaigns page in frontend
+- [ ] **Phase E — Traceability + refresh**
+  - [ ] `source` / `confidence` / `lastRefreshedAt` metadata on stored fields
+  - [ ] Refresh endpoints: prospect, company, list, campaign (diff-aware, not full rerun)
+
+**Open questions before starting** (see redesign-v2.md for full context): can a prospect belong to multiple concurrent campaigns; do old classification fields get dropped or kept during transition; are Personas/Playbooks/Signals org-only or is there a platform-level default seed; does Company get its own usage/plan limit.
 
 ---
 

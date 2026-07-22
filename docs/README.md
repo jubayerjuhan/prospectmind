@@ -21,7 +21,8 @@ docs/
 ├── status/
 │   ├── current.md             ← What's done, what's broken, env status
 │   ├── todos.md               ← Immediate task list by priority
-│   └── roadmap.md             ← Phase 2, 3, 4, 5 plans
+│   ├── roadmap.md             ← Phase 2, 3, 4, 5 plans
+│   └── redesign-v2.md         ← Stakeholder HLD pivot: Company/Persona/Playbook/Signal/Campaign
 └── api/
     └── endpoints.md           ← Full API reference with request/response shapes
 ```
@@ -37,6 +38,7 @@ docs/
 | What has been built? | `status/current.md` |
 | What should I work on next? | `status/todos.md` |
 | What's coming in future phases? | `status/roadmap.md` |
+| What's the new stakeholder architecture pivot? | `status/redesign-v2.md` |
 | How does auth work? | `features/auth.md` |
 | What API endpoints exist? | `api/endpoints.md` |
 | How is the frontend structured? | `features/frontend.md` |
