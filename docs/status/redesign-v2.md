@@ -36,6 +36,7 @@ Analyzed independently of any Prospect (HLD §2.2); prospects reference it, they
 ### `Prospect` (changed)
 - `company` changes from a free-text string to `company: ObjectId ref Company` — needs a one-time migration (string → find-or-create `Company` doc).
 - New `personaScores: [{ persona(ref Persona), score, reasoning, evidence[], scoredAt }]` — replaces the single hardcoded `roleClassification` + `compatibilityScore` pair; a prospect can be scored against every active Persona, not just one.
+- New `channels: [{ type, value, status, source, confidence, discoveredAt }]` — the prospect's **available/discovered communication channels** (HLD §2.1, §5.1: "Available communication channels" / "Discovered communication channels"). This is what enrichment finds is *reachable* for the person (e.g. email found, LinkedIn open, X DMs on) and is distinct from `Campaign.channels`, which is the channel *selection* for a given send. A campaign can only use channels a prospect actually has.
 - `enrichedProfile` fields gain provenance where practical: `source`, `confidence`, `lastRefreshedAt`.
 
 ### `Persona` (new model)
@@ -107,6 +108,8 @@ New endpoints, all diff-aware (only touch fields that may have changed, not a fu
 - Do `roleClassification`/`compatibilityScore` get dropped once `personaScores` exists, or kept during a transition window for backward compat?
 - Are Personas/Playbooks/Signals strictly per-organization, or should there be platform-level defaults every new org is seeded with (the GoodHive example in the HLD reads like a seed template)?
 - Does `Company` need its own plan-limit/usage counter, or does it ride along with the existing `Prospect` limit?
+- **Campaign targeting shape:** the HLD only says a Campaign selects "which prospects to target" / a "target audience" (§2.3, §4) — it never names a saved list object. This doc assumes `Campaign.targetList → ref ProspectList` (a persisted, reusable list). Is that the intended model, or should a campaign target prospects some other way (ad-hoc selection, a saved filter/segment query, tags)?
+- **Channel availability enforcement:** the HLD stores "available communication channels" on the Prospect (§2.1) but doesn't say what happens when a Campaign selects a channel a prospect lacks. Skip that prospect for that step, fall back to another channel, or flag it?
 
 ---
 
