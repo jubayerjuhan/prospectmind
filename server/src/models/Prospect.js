@@ -144,7 +144,24 @@ const prospectSchema = new mongoose.Schema(
     scoreReasoning: String,
     scoreBreakdown: mongoose.Schema.Types.Mixed,
     // Per-persona, campaign-aware explanation: [{ persona, fit, campaignValue }]
+    // NOTE: legacy, classification-role based (see scorer.js). Distinct from
+    // personaScores below, which is prompt-driven off first-class Personas.
     personaBreakdown: mongoose.Schema.Types.Mixed,
+
+    // Prompt-driven scores against first-class Personas (v2 Phase C).
+    // Each active Persona's user-authored prompt is run against this prospect.
+    personaScores: [
+      {
+        _id: false,
+        persona: { type: mongoose.Schema.Types.ObjectId, ref: 'Persona' },
+        personaName: String, // denormalized for display without a populate
+        score: { type: Number, min: 0, max: 100 },
+        reasoning: String,
+        evidence: [String],
+        scoredAt: Date,
+      },
+    ],
+
     outreachPriority: { type: String, enum: ['high', 'medium', 'low'], default: 'medium' },
 
     // Best contact channel

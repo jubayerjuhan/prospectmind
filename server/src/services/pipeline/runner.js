@@ -6,11 +6,13 @@
 import Prospect from '../../models/Prospect.js';
 import Organization from '../../models/Organization.js';
 import ProspectList from '../../models/ProspectList.js';
+import Persona from '../../models/Persona.js';
 import { askAI } from '../ai/claudeClient.js';
 import { resolveIdentity } from './discovery.js';
 import { enrichProfile } from './enrichment.js';
 import { classifyProfile } from './classifier.js';
 import { scoreProfile } from './scorer.js';
+import { scorePersonas } from './personaScorer.js';
 import { formatPersonasForPrompt } from '../../utils/personas.js';
 
 const updateStatus = async (prospectId, status, extra = {}) => {
@@ -138,6 +140,31 @@ export const runPipeline = async (prospectId) => {
     const scoring = await scoreProfile(prospect, enrichedProfile, classification, fullCampaignContext, { callAI });
     if (await pauseIfRequested(prospectId)) return { success: false, paused: true, prospectId };
 
+    // ── Layer 4.5: Persona Scoring (v2 Phase C) ─────────────────────────────
+    // Score against the org's active first-class Personas using their
+    // user-authored prompts. Additive — does not affect compatibilityScore.
+    // Failures here must not break the pipeline (best-effort enrichment).
+    let personaScores = [];
+    try {
+      const activePersonas = await Persona.find({
+        organization: prospect.organization,
+        isActive: true,
+      }).select('_id name prompt').lean();
+
+      if (activePersonas.length) {
+        console.log(`  → Layer 4.5: Persona Scoring (${activePersonas.length} active persona(s))`);
+        // Persona scoring is intentionally campaign-agnostic (HLD §3.1): it judges
+        // how well the prospect matches the persona TYPE, so the scores are
+        // reusable across campaigns. Campaign-specific fit is a separate concern.
+        // `companyContext` is reserved for real Company analysis (Phase A), not
+        // the campaign description.
+        personaScores = await scorePersonas(prospect, enrichedProfile, activePersonas, { callAI });
+      }
+    } catch (personaErr) {
+      console.warn(`  ⚠ Persona scoring skipped: ${personaErr.message}`);
+    }
+    if (await pauseIfRequested(prospectId)) return { success: false, paused: true, prospectId };
+
     // ── Layer 5: Outreach Generation (SKIPPED INITIALLY) ────────────────────
     // We now skip this by default to save tokens. User can trigger manually later.
     const messages = [];
@@ -169,6 +196,7 @@ export const runPipeline = async (prospectId) => {
       scoreReasoning: scoring.scoreReasoning,
       scoreBreakdown: scoring.scoreBreakdown,
       personaBreakdown: scoring.personaBreakdown || [],
+      personaScores,
       outreachPriority: scoring.outreachPriority,
       bestContactChannel: scoring.bestContactChannel,
       messages,
