@@ -4,6 +4,7 @@ import api from '../lib/api';
 import toast from 'react-hot-toast';
 import { Save, Settings, Shield, Zap, Loader2, KeyRound, RefreshCw, ChevronDown } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
+import PersonasSettings from '../components/settings/PersonasSettings';
 
 export default function SettingsPage() {
   const queryClient = useQueryClient();
@@ -285,6 +286,9 @@ export default function SettingsPage() {
         </div>
 
       </form>
+
+      {/* Personas — first-class scoring settings (v2 redesign, Phase B) */}
+      <PersonasSettings />
     </div>
   );
 }
