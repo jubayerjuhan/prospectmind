@@ -601,6 +601,49 @@ export default function ProspectDetailPage() {
             </div>
           )}
 
+          {/* Persona Scores — first-class, prompt-driven (v2 Phase C) */}
+          {Array.isArray(p.personaScores) && p.personaScores.length > 0 && (
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+              <h3 className="text-white font-semibold mb-1 flex items-center gap-2">
+                <Star size={16} className="text-indigo-400" /> Persona Scores
+              </h3>
+              <p className="text-slate-500 text-xs mb-4">
+                Scored against your active <span className="text-slate-400">Settings → Personas</span> using each persona's prompt.
+              </p>
+              <div className="space-y-3">
+                {p.personaScores.map((ps, idx) => (
+                  <div
+                    key={`${ps.persona || ps.personaName || 'persona'}-${idx}`}
+                    className="rounded-lg border border-slate-800 bg-slate-950/40 p-3"
+                  >
+                    <div className="flex items-start justify-between gap-3 mb-1.5">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0" />
+                        <span className="text-indigo-300 text-sm font-semibold truncate">
+                          {ps.personaName || 'Persona'}
+                        </span>
+                      </div>
+                      {typeof ps.score === 'number' && <PersonaFitRing score={ps.score} />}
+                    </div>
+                    {ps.reasoning && (
+                      <p className="text-slate-300 text-sm leading-relaxed">{ps.reasoning}</p>
+                    )}
+                    {Array.isArray(ps.evidence) && ps.evidence.length > 0 && (
+                      <ul className="mt-2 space-y-1">
+                        {ps.evidence.map((e, i) => (
+                          <li key={i} className="flex items-start gap-1.5 text-slate-400 text-xs leading-relaxed">
+                            <CheckCircle size={12} className="text-emerald-500/70 mt-0.5 shrink-0" />
+                            <span>{e}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Core Skills (Talent Only) */}
           {isTalent && uniqueSkills.length > 0 && (
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
