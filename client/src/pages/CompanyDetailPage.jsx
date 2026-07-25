@@ -34,6 +34,16 @@ export default function CompanyDetailPage() {
     onError: (err) => toast.error(err.response?.data?.message || 'Analysis failed.'),
   });
 
+  const detectSignalsMutation = useMutation({
+    mutationFn: () => api.post(`/companies/${id}/detect-signals`),
+    onSuccess: (res) => {
+      const n = res.data?.detected ?? 0;
+      toast.success(n > 0 ? `${n} signal result(s) stored.` : 'No active company signals to run.');
+      queryClient.invalidateQueries({ queryKey: ['company', id] });
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'Signal detection failed.'),
+  });
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center gap-2 text-slate-400 text-sm py-20">
@@ -139,9 +149,24 @@ export default function CompanyDetailPage() {
 
       {/* Signals (populated once Signal detection ships) */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-        <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
-          <Radar size={16} className="text-indigo-400" /> Business Signals
-        </h3>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-white font-semibold flex items-center gap-2">
+            <Radar size={16} className="text-indigo-400" /> Business Signals
+          </h3>
+          <button
+            type="button"
+            disabled={detectSignalsMutation.isPending}
+            onClick={() => detectSignalsMutation.mutate()}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 font-medium rounded-lg text-xs transition"
+          >
+            {detectSignalsMutation.isPending ? (
+              <Loader2 size={13} className="animate-spin" />
+            ) : (
+              <Radar size={13} />
+            )}
+            {detectSignalsMutation.isPending ? 'Detecting…' : 'Detect signals'}
+          </button>
+        </div>
         {Array.isArray(company.signals) && company.signals.length > 0 ? (
           <div className="space-y-3">
             {company.signals.map((s, i) => (
