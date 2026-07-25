@@ -67,13 +67,24 @@ export const getCompany = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Company not found.' });
     }
 
-    const prospectCount = await Prospect.countDocuments({
-      organization: req.organization._id,
-      companyRef: company._id,
-      isArchived: false,
-    });
+    const [prospectCount, prospects] = await Promise.all([
+      Prospect.countDocuments({
+        organization: req.organization._id,
+        companyRef: company._id,
+        isArchived: false,
+      }),
+      Prospect.find({
+        organization: req.organization._id,
+        companyRef: company._id,
+        isArchived: false,
+      })
+        .sort({ compatibilityScore: -1, createdAt: -1 })
+        .limit(50)
+        .select('_id firstName lastName pipelineStatus compatibilityScore scoreLabel outreachPriority enrichedProfile.currentRole')
+        .lean(),
+    ]);
 
-    res.json({ success: true, data: { ...company, prospectCount } });
+    res.json({ success: true, data: { ...company, prospectCount, prospects } });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

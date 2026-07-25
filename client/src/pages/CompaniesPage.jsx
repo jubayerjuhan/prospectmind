@@ -1,34 +1,23 @@
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
-import toast from 'react-hot-toast';
 import {
-  Building2, Search, ChevronLeft, ChevronRight, ChevronDown, Sparkles,
-  Loader2, ExternalLink, Users, RefreshCw,
+  Building2, Search, ChevronLeft, ChevronRight, Sparkles, Loader2, Users,
 } from 'lucide-react';
 
 const PAGE_SIZE = 20;
 
 export default function CompaniesPage() {
-  const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
-  const [expandedId, setExpandedId] = useState(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['companies', search, page],
     queryFn: () =>
       api.get('/companies', { params: { search, limit: PAGE_SIZE, page } }).then((r) => r.data),
     keepPreviousData: true,
-  });
-
-  const analyzeMutation = useMutation({
-    mutationFn: ({ id, force }) => api.post(`/companies/${id}/analyze`, { force }),
-    onSuccess: (res) => {
-      toast.success(res.data?.analyzed ? 'Company analyzed.' : 'No public context found to analyze.');
-      queryClient.invalidateQueries({ queryKey: ['companies'] });
-    },
-    onError: (err) => toast.error(err.response?.data?.message || 'Analysis failed.'),
   });
 
   const companies = data?.data || [];
@@ -82,98 +71,38 @@ export default function CompaniesPage() {
       ) : (
         <div className="bg-slate-900 border border-slate-800 rounded-xl divide-y divide-slate-800/70 overflow-hidden">
           {companies.map((c) => {
-            const isExpanded = expandedId === c._id;
             const isAnalyzed = Boolean(c.aiAnalysis?.lastAnalyzedAt);
-            const isAnalyzing =
-              analyzeMutation.isPending && analyzeMutation.variables?.id === c._id;
-
             return (
-              <div key={c._id}>
-                {/* Row */}
-                <button
-                  type="button"
-                  onClick={() => setExpandedId(isExpanded ? null : c._id)}
-                  className="w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-slate-800/40 transition"
-                >
-                  <ChevronDown
-                    size={16}
-                    className={`text-slate-500 shrink-0 transition-transform ${isExpanded ? '' : '-rotate-90'}`}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-white text-sm font-medium truncate">{c.name}</span>
-                      {isAnalyzed ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-900/50 text-violet-300 border border-violet-800 text-[10px] font-medium shrink-0">
-                          <Sparkles size={10} /> Analyzed
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-800 text-slate-500 text-[10px] font-medium shrink-0">
-                          Not analyzed
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3 mt-0.5 text-xs text-slate-500">
-                      {c.industry && <span>{c.industry}</span>}
-                      {c.size && <span>{c.size} employees</span>}
-                      {c.domain && <span className="text-slate-600">{c.domain}</span>}
-                    </div>
-                  </div>
-                  <span className="flex items-center gap-1.5 text-slate-400 text-xs shrink-0">
-                    <Users size={13} /> {c.prospectCount ?? 0}
-                  </span>
-                </button>
-
-                {/* Expanded detail */}
-                {isExpanded && (
-                  <div className="px-5 pb-5 pt-1 pl-[3.25rem] space-y-3 bg-slate-950/30">
-                    {isAnalyzed && c.aiAnalysis?.summary ? (
-                      <>
-                        <p className="text-slate-300 text-sm leading-relaxed">{c.aiAnalysis.summary}</p>
-                        <p className="text-slate-600 text-[11px]">
-                          Analyzed {new Date(c.aiAnalysis.lastAnalyzedAt).toLocaleString()}
-                          {Array.isArray(c.sourceRefs) && c.sourceRefs.length > 0 && (
-                            <> · sources: {[...new Set(c.sourceRefs.map((s) => s.source))].join(', ')}</>
-                          )}
-                        </p>
-                      </>
+              <button
+                key={c._id}
+                type="button"
+                onClick={() => navigate(`/companies/${c._id}`)}
+                className="w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-slate-800/40 transition"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-white text-sm font-medium truncate">{c.name}</span>
+                    {isAnalyzed ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-900/50 text-violet-300 border border-violet-800 text-[10px] font-medium shrink-0">
+                        <Sparkles size={10} /> Analyzed
+                      </span>
                     ) : (
-                      <p className="text-slate-500 text-sm">
-                        No AI analysis yet. Run one to get an independent company summary.
-                      </p>
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-800 text-slate-500 text-[10px] font-medium shrink-0">
+                        Not analyzed
+                      </span>
                     )}
-
-                    <div className="flex items-center gap-3">
-                      <button
-                        type="button"
-                        disabled={isAnalyzing}
-                        onClick={() =>
-                          analyzeMutation.mutate({ id: c._id, force: isAnalyzed })
-                        }
-                        className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white font-medium rounded-lg text-xs transition"
-                      >
-                        {isAnalyzing ? (
-                          <Loader2 size={13} className="animate-spin" />
-                        ) : isAnalyzed ? (
-                          <RefreshCw size={13} />
-                        ) : (
-                          <Sparkles size={13} />
-                        )}
-                        {isAnalyzing ? 'Analyzing…' : isAnalyzed ? 'Re-analyze' : 'Analyze'}
-                      </button>
-                      {c.website && (
-                        <a
-                          href={c.website}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="flex items-center gap-1 text-slate-400 hover:text-indigo-300 text-xs transition"
-                        >
-                          <ExternalLink size={12} /> Website
-                        </a>
-                      )}
-                    </div>
                   </div>
-                )}
-              </div>
+                  <div className="flex items-center gap-3 mt-0.5 text-xs text-slate-500">
+                    {c.industry && <span>{c.industry}</span>}
+                    {c.size && <span>{c.size} employees</span>}
+                    {c.domain && <span className="text-slate-600">{c.domain}</span>}
+                  </div>
+                </div>
+                <span className="flex items-center gap-1.5 text-slate-400 text-xs shrink-0">
+                  <Users size={13} /> {c.prospectCount ?? 0}
+                </span>
+                <ChevronRight size={16} className="text-slate-600 shrink-0" />
+              </button>
             );
           })}
         </div>
