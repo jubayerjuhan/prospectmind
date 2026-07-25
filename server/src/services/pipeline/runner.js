@@ -7,6 +7,7 @@ import Prospect from '../../models/Prospect.js';
 import Organization from '../../models/Organization.js';
 import ProspectList from '../../models/ProspectList.js';
 import Persona from '../../models/Persona.js';
+import { findOrCreateCompany } from '../company/companyService.js';
 import { askAI } from '../ai/claudeClient.js';
 import { resolveIdentity } from './discovery.js';
 import { enrichProfile } from './enrichment.js';
@@ -64,6 +65,21 @@ export const runPipeline = async (prospectId) => {
 
   // Load organization settings
   const org = await Organization.findById(prospect.organization);
+
+  // Link the prospect to a first-class Company (v2 Phase A). Single integration
+  // point covering every creation path (single/bulk/add-and-create/import),
+  // since they all flow through the pipeline. Best-effort — never block the run.
+  if (prospect.company?.trim() && !prospect.companyRef) {
+    try {
+      const company = await findOrCreateCompany({ organization: prospect.organization, name: prospect.company });
+      if (company) {
+        prospect.companyRef = company._id;
+        await Prospect.findByIdAndUpdate(prospectId, { companyRef: company._id });
+      }
+    } catch (companyErr) {
+      console.warn(`  ⚠ Company link skipped: ${companyErr.message}`);
+    }
+  }
 
   // Resolve campaign-level settings — prefer the first manual campaign containing this prospect
   const campaignList = await ProspectList.findOne({

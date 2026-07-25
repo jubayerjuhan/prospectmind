@@ -99,7 +99,11 @@ const prospectSchema = new mongoose.Schema(
     // Raw input
     firstName: { type: String, required: true },
     lastName: String,
-    company: String,
+    company: String, // free-text display name (source of truth for now)
+    // Structured link to the first-class Company module (v2 Phase A). Added
+    // alongside `company` (not replacing it) so existing string readers keep
+    // working; populated by find-or-create on create + a backfill script.
+    companyRef: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', index: true },
     typeHint: { type: String, enum: ['talent', 'client', 'unknown'], default: 'unknown' },
     description: { type: String, default: '' }, // Optional user-provided context fed into the AI pipeline
 

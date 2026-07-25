@@ -6,6 +6,7 @@ import billingRoutes from './billing.js';
 import organizationRoutes from './organization.js';
 import githubTalentRoutes from './githubTalent.js';
 import personaRoutes from './personas.js';
+import companyRoutes from './companies.js';
 import aiRoutes from './ai.js';
 
 const router = Router();
@@ -17,6 +18,7 @@ router.use('/billing', billingRoutes);
 router.use('/organization', organizationRoutes);
 router.use('/github-talent', githubTalentRoutes);
 router.use('/personas', personaRoutes);
+router.use('/companies', companyRoutes);
 router.use('/ai', aiRoutes);
 
 router.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
