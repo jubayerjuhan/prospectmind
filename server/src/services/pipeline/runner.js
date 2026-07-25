@@ -8,6 +8,7 @@ import Organization from '../../models/Organization.js';
 import ProspectList from '../../models/ProspectList.js';
 import Persona from '../../models/Persona.js';
 import { findOrCreateCompany } from '../company/companyService.js';
+import { analyzeCompany } from '../company/companyAnalyzer.js';
 import { askAI } from '../ai/claudeClient.js';
 import { resolveIdentity } from './discovery.js';
 import { enrichProfile } from './enrichment.js';
@@ -75,6 +76,14 @@ export const runPipeline = async (prospectId) => {
       if (company) {
         prospect.companyRef = company._id;
         await Prospect.findByIdAndUpdate(prospectId, { companyRef: company._id });
+
+        // First-time company analysis (HLD §2.2) — fire-and-forget so the
+        // prospect pipeline never waits on it; cached after the first run.
+        if (!company.aiAnalysis?.lastAnalyzedAt) {
+          analyzeCompany(company).catch((err) =>
+            console.warn(`  ⚠ Company analysis failed for "${company.name}": ${err.message}`)
+          );
+        }
       }
     } catch (companyErr) {
       console.warn(`  ⚠ Company link skipped: ${companyErr.message}`);

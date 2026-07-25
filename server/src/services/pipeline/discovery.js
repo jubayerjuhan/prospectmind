@@ -15,7 +15,7 @@ const SERPER_API_URL = 'https://google.serper.dev/search';
 
 // ─── Serper Search Helper ────────────────────────────────────────────────────
 
-const searchGoogle = async (query) => {
+export const searchGoogle = async (query) => {
   const apiKey = process.env.SERPER_API_KEY;
 
   if (!apiKey) {

@@ -1,6 +1,7 @@
 import Company from '../models/Company.js';
 import Prospect from '../models/Prospect.js';
 import { normalizeCompanyName, findOrCreateCompany } from '../services/company/companyService.js';
+import { analyzeCompany } from '../services/company/companyAnalyzer.js';
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
@@ -149,6 +150,32 @@ export const updateCompany = async (req, res) => {
 
     await company.save();
     res.json({ success: true, data: company });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// POST /api/companies/:id/analyze
+// Runs (or re-runs with force=true) the independent AI analysis (HLD §2.2).
+export const analyzeCompanyHandler = async (req, res) => {
+  try {
+    const company = await Company.findOne({
+      _id: req.params.id,
+      organization: req.organization._id,
+    });
+
+    if (!company) {
+      return res.status(404).json({ success: false, message: 'Company not found.' });
+    }
+
+    const force = req.body?.force === true || req.query.force === 'true';
+    const analyzed = await analyzeCompany(company, { force });
+
+    res.json({
+      success: true,
+      data: analyzed,
+      analyzed: Boolean(analyzed?.aiAnalysis?.lastAnalyzedAt),
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
