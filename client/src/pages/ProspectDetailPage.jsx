@@ -65,215 +65,114 @@ const Badge = ({ children, color = 'indigo' }) => {
   );
 };
 
-function calculateRadarMetrics(ep, uniqueSkills) {
-  const skills = (uniqueSkills || []).map(s => s.toLowerCase());
-
-  // 1. Web3 Native (based on Web3 native score and skills)
-  const web3Skills = ['solidity', 'rust', 'smart contract', 'solana', 'ethereum', 'web3', 'hardhat', 'foundry', 'truffle', 'ethers', 'web3.js', 'defi', 'cryptography', 'blockchain', 'ethers.js'];
-  const web3SkillCount = skills.filter(s => web3Skills.some(w => s.includes(w))).length;
-  const web3Score = Math.max(
-    ep.web3NativeScore || 0,
-    Math.min(100, (web3SkillCount * 15) + (ep.web3NativeScore ? 20 : 0))
-  );
-
-  // 2. Systems & Backend
-  const backendSkills = ['node', 'express', 'nest', 'go', 'golang', 'rust', 'python', 'django', 'flask', 'fastapi', 'postgres', 'postgresql', 'mongodb', 'mysql', 'redis', 'docker', 'kubernetes', 'aws', 'backend', 'graphql'];
-  const backendSkillCount = skills.filter(s => backendSkills.some(b => s.includes(b))).length;
-  const backendScore = Math.min(100, (backendSkillCount * 15) + (skills.includes('node.js') || skills.includes('node') ? 20 : 0));
-
-  // 3. Frontend & UI
-  const frontendSkills = ['react', 'vue', 'angular', 'svelte', 'next.js', 'nextjs', 'tailwind', 'tailwindcss', 'css', 'html', 'javascript', 'typescript', 'frontend', 'ui', 'ux', 'sass'];
-  const frontendSkillCount = skills.filter(s => frontendSkills.some(f => s.includes(f))).length;
-  const frontendScore = Math.min(100, (frontendSkillCount * 15) + (skills.includes('react') || skills.includes('reactjs') ? 20 : 0));
-
-  // 4. OSS Impact
-  const stars = ep.githubStats?.stars || 0;
-  const repos = ep.githubStats?.repos || 0;
-  const ossScore = Math.min(100, (stars * 8) + (repos * 2) + (stars > 0 ? 25 : 0));
-
-  // 5. Ecosystem Breadth
-  const uniqueCount = skills.length;
-  const breadthScore = Math.min(100, (uniqueCount * 6));
-
-  return [
-    { label: 'Web3 & Contracts', value: Math.max(15, web3Score) },
-    { label: 'Systems & Backend', value: Math.max(15, backendScore) },
-    { label: 'Frontend & UI', value: Math.max(15, frontendScore) },
-    { label: 'OSS Impact', value: Math.max(15, ossScore) },
-    { label: 'Ecosystem Breadth', value: Math.max(15, breadthScore) }
-  ];
+/* ── Campaign-fit tier + gauge ─────────────────────────────────────── */
+function getFitTier(score) {
+  if (score >= 80) return { label: 'Excellent Fit',  color: '#34d399', glow: 'rgba(52,211,153,0.45)',  text: 'text-emerald-300', ring: 'border-emerald-500/40' };
+  if (score >= 60) return { label: 'Strong Fit',     color: '#818cf8', glow: 'rgba(129,140,248,0.45)', text: 'text-indigo-300',  ring: 'border-indigo-500/40' };
+  if (score >= 40) return { label: 'Moderate Fit',   color: '#fbbf24', glow: 'rgba(251,191,36,0.45)',  text: 'text-amber-300',   ring: 'border-amber-500/40' };
+  if (score >= 20) return { label: 'Weak Fit',       color: '#fb923c', glow: 'rgba(251,146,60,0.45)',  text: 'text-orange-300',  ring: 'border-orange-500/40' };
+  return              { label: 'Poor Fit',        color: '#f87171', glow: 'rgba(248,113,113,0.45)', text: 'text-red-300',     ring: 'border-red-500/40' };
 }
 
-function SkillRadarChart({ p, ep, uniqueSkills }) {
-  let metrics = [];
-  
-  if (p?.scoreBreakdown && Object.keys(p.scoreBreakdown).length >= 3) {
-    metrics = Object.entries(p.scoreBreakdown).map(([label, data]) => ({
-      label,
-      value: Math.max(15, data.score || 0)
-    }));
-  } else {
-    metrics = calculateRadarMetrics(ep, uniqueSkills);
-  }
+const PRIORITY_STYLE = {
+  high:   { text: 'text-emerald-300', bg: 'bg-emerald-900/40 border-emerald-700/50', label: 'High priority' },
+  medium: { text: 'text-amber-300',   bg: 'bg-amber-900/40 border-amber-700/50',     label: 'Medium priority' },
+  low:    { text: 'text-slate-400',   bg: 'bg-slate-800 border-slate-700',           label: 'Low priority' },
+};
 
-  const numVertices = Math.max(3, metrics.length);
-  const width = 240;
-  const height = 240;
-  const cx = width / 2;
-  const cy = height / 2;
-  const r = 80;
-
-  // Angles for each vertex
-  const getCoordinates = (index, value) => {
-    const angle = -Math.PI / 2 + (index * 2 * Math.PI) / numVertices;
-    const factor = value / 100;
-    const x = cx + r * factor * Math.cos(angle);
-    const y = cy + r * factor * Math.sin(angle);
-    return { x, y };
-  };
-
-  // Generate grid pentagons (for 25%, 50%, 75%, 100%)
-  const gridLevels = [25, 50, 75, 100];
-  const gridPolygons = gridLevels.map(level => {
-    return Array.from({ length: numVertices }).map((_, i) => {
-      const { x, y } = getCoordinates(i, level);
-      return `${x},${y}`;
-    }).join(' ');
-  });
-
-  // Candidate path
-  const candidatePoints = metrics.map((m, i) => {
-    const { x, y } = getCoordinates(i, m.value);
-    return { x, y, label: m.label, value: m.value };
-  });
-  const candidatePath = candidatePoints.map(p => `${p.x},${p.y}`).join(' ');
-
-  // Labels coordinates
-  const labelPositions = Array.from({ length: numVertices }).map((_, i) => {
-    // Offset labels slightly outward
-    const angle = -Math.PI / 2 + (i * 2 * Math.PI) / numVertices;
-    const textDistance = r + 24;
-    const x = cx + textDistance * Math.cos(angle);
-    const y = cy + textDistance * Math.sin(angle);
-    
-    // Adjust text anchor
-    let textAnchor = 'middle';
-    if (Math.cos(angle) > 0.1) textAnchor = 'start';
-    if (Math.cos(angle) < -0.1) textAnchor = 'end';
-    
-    return { x, y, textAnchor, label: metrics[i].label, value: metrics[i].value };
-  });
+function CampaignFitGauge({ score, label, priority }) {
+  const tier = getFitTier(score);
+  const clamped = Math.max(0, Math.min(100, score));
+  const priStyle = priority ? PRIORITY_STYLE[priority] : null;
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col md:flex-row items-center gap-8 relative overflow-hidden group">
-      <div className="absolute -left-12 -bottom-12 w-24 h-24 bg-indigo-500/5 rounded-full blur-2xl group-hover:bg-indigo-500/10 transition-all"></div>
-      <div className="relative w-[240px] h-[240px] shrink-0 flex items-center justify-center">
-        <svg width={width} height={height} className="overflow-visible">
-          {/* Grid lines */}
-          {gridPolygons.map((points, idx) => (
-            <polygon
-              key={idx}
-              points={points}
-              fill="none"
-              stroke="#334155"
-              strokeWidth="0.8"
-              strokeDasharray={idx < 3 ? "2,2" : undefined}
-            />
-          ))}
-
-          {/* Radial axis lines */}
-          {Array.from({ length: numVertices }).map((_, i) => {
-            const outer = getCoordinates(i, 100);
-            return (
-              <line
-                key={i}
-                x1={cx}
-                y1={cy}
-                x2={outer.x}
-                y2={outer.y}
-                stroke="#1e293b"
-                strokeWidth="1"
-              />
-            );
-          })}
-
-          {/* Candidate Polygon fill */}
-          <polygon
-            points={candidatePath}
-            fill="url(#radarGradient)"
-            stroke="#6366f1"
-            strokeWidth="1.5"
-          />
-
-          {/* Define Gradient */}
+    <div className="flex flex-col sm:flex-row items-center gap-5 rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+      {/* Semicircular gauge */}
+      <div className="relative w-[180px] h-[104px] shrink-0">
+        <svg viewBox="0 0 200 116" className="w-full h-full overflow-visible">
           <defs>
-            <radialGradient id="radarGradient" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="rgba(99, 102, 241, 0.1)" />
-              <stop offset="100%" stopColor="rgba(99, 102, 241, 0.35)" />
-            </radialGradient>
+            <linearGradient id="fitGaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor={tier.color} stopOpacity="0.55" />
+              <stop offset="100%" stopColor={tier.color} />
+            </linearGradient>
           </defs>
-
-          {/* Vertex dots */}
-          {candidatePoints.map((p, idx) => (
-            <circle
-              key={idx}
-              cx={p.x}
-              cy={p.y}
-              r="3.5"
-              fill="#818cf8"
-              stroke="#0f172a"
-              strokeWidth="1.5"
-            />
-          ))}
-
-          {/* Axis Labels */}
-          {labelPositions.map((lp, idx) => (
-            <g key={idx}>
-              <text
-                x={lp.x}
-                y={lp.y - 4}
-                textAnchor={lp.textAnchor}
-                fill="#94a3b8"
-                fontSize="9"
-                fontWeight="600"
-                className="select-none uppercase tracking-wider font-sans"
-              >
-                {lp.label.split(' & ')[0]}
-              </text>
-              <text
-                x={lp.x}
-                y={lp.y + 6}
-                textAnchor={lp.textAnchor}
-                fill="#818cf8"
-                fontSize="9"
-                fontWeight="700"
-                className="select-none font-sans"
-              >
-                {lp.value}%
-              </text>
-            </g>
-          ))}
+          {/* Track */}
+          <path
+            d="M 20 100 A 80 80 0 0 1 180 100"
+            fill="none"
+            stroke="#1e293b"
+            strokeWidth="14"
+            strokeLinecap="round"
+          />
+          {/* Value arc */}
+          <path
+            d="M 20 100 A 80 80 0 0 1 180 100"
+            fill="none"
+            stroke="url(#fitGaugeGrad)"
+            strokeWidth="14"
+            strokeLinecap="round"
+            pathLength="100"
+            strokeDasharray="100"
+            strokeDashoffset={100 - clamped}
+            style={{
+              transition: 'stroke-dashoffset 900ms cubic-bezier(0.4,0,0.2,1)',
+              filter: `drop-shadow(0 0 6px ${tier.glow})`,
+            }}
+          />
         </svg>
+        {/* Center readout */}
+        <div className="absolute inset-0 flex flex-col items-center justify-end pb-1">
+          <span className="text-3xl font-extrabold text-white leading-none">{score}</span>
+          <span className="text-slate-500 text-[11px] font-medium">/ 100</span>
+        </div>
       </div>
 
-      <div className="flex-1 space-y-3 w-full relative z-10">
+      {/* Label + priority */}
+      <div className="flex-1 text-center sm:text-left space-y-2">
         <div>
-          <h4 className="text-white font-semibold text-sm uppercase tracking-wider">
-            Competency Radar
-          </h4>
-          <p className="text-slate-400 text-xs mt-1 leading-relaxed">
-            Visual index of tech capabilities parsed from public profiles, OSS contributions, and code repositories.
-          </p>
+          <div className={`inline-flex items-center gap-1.5 text-sm font-bold ${tier.text}`}>
+            <span className="w-2 h-2 rounded-full" style={{ background: tier.color, boxShadow: `0 0 8px ${tier.glow}` }} />
+            {tier.label}
+          </div>
+          {label && (
+            <p className="text-slate-400 text-xs mt-1 capitalize">
+              {label.replace(/_/g, ' ')}
+            </p>
+          )}
         </div>
-        <div className="grid grid-cols-2 gap-3 pt-2">
-          {metrics.map((m, idx) => (
-            <div key={idx} className="bg-slate-950/40 border border-slate-800/80 rounded-lg p-2.5 flex flex-col justify-center">
-              <span className="text-[9px] text-slate-500 uppercase font-bold tracking-wider mb-1 truncate">{m.label}</span>
-              <span className="text-sm font-extrabold text-white">{m.value}%</span>
-            </div>
-          ))}
+        {priStyle && (
+          <span className={`inline-block text-[11px] font-semibold px-2.5 py-1 rounded-full border ${priStyle.bg} ${priStyle.text}`}>
+            {priStyle.label}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PersonaFitRing({ score }) {
+  const tier = getFitTier(score);
+  const clamped = Math.max(0, Math.min(100, score));
+  return (
+    <div className="flex flex-col items-center gap-1 shrink-0" title={`${tier.label} · ${score}/100`}>
+      <div className="relative w-12 h-12">
+        <svg viewBox="0 0 48 48" className="w-full h-full -rotate-90">
+          <circle cx="24" cy="24" r="20" fill="none" stroke="#1e293b" strokeWidth="4" />
+          <circle
+            cx="24" cy="24" r="20" fill="none"
+            stroke={tier.color} strokeWidth="4" strokeLinecap="round"
+            pathLength="100" strokeDasharray="100" strokeDashoffset={100 - clamped}
+            style={{
+              transition: 'stroke-dashoffset 900ms cubic-bezier(0.4,0,0.2,1)',
+              filter: `drop-shadow(0 0 4px ${tier.glow})`,
+            }}
+          />
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="text-white text-xs font-bold">{score}</span>
         </div>
       </div>
+      <span className={`text-[9px] font-semibold ${tier.text} whitespace-nowrap`}>{tier.label}</span>
     </div>
   );
 }
@@ -635,20 +534,29 @@ export default function ProspectDetailPage() {
             )}
           </div>
 
-          {/* Skill Radar Chart */}
-          {p.pipelineStatus === 'ready' && (
-            <SkillRadarChart p={p} ep={ep} uniqueSkills={uniqueSkills} />
-          )}
-
           {/* Personas */}
           {p.roleClassification?.length > 0 && (
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
               <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
                 <Sparkles size={16} className="text-indigo-400" /> Personas
               </h3>
-              <div className="flex flex-wrap gap-2 mb-3">
+              <div className="flex flex-wrap gap-2 mb-4">
                 {p.roleClassification.map((r) => <Badge key={r}>{r}</Badge>)}
               </div>
+
+              {/* Visual campaign-fit gauge */}
+              {p.compatibilityScore != null && (
+                <div className="mb-4">
+                  <p className="text-slate-500 text-[11px] font-semibold uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <Target size={12} className="text-indigo-400" /> Campaign Fit
+                  </p>
+                  <CampaignFitGauge
+                    score={p.compatibilityScore}
+                    label={p.scoreLabel}
+                    priority={p.outreachPriority}
+                  />
+                </div>
+              )}
 
               {Array.isArray(p.personaBreakdown) && p.personaBreakdown.length > 0 ? (
                 <div className="space-y-3">
@@ -657,11 +565,14 @@ export default function ProspectDetailPage() {
                       key={`${pb.persona || 'persona'}-${idx}`}
                       className="rounded-lg border border-slate-800 bg-slate-950/40 p-3"
                     >
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-indigo-400" />
-                        <span className="text-indigo-300 text-sm font-semibold capitalize">
-                          {pb.persona}
-                        </span>
+                      <div className="flex items-start justify-between gap-3 mb-1.5">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="inline-block w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0" />
+                          <span className="text-indigo-300 text-sm font-semibold capitalize truncate">
+                            {pb.persona}
+                          </span>
+                        </div>
+                        {typeof pb.fitScore === 'number' && <PersonaFitRing score={pb.fitScore} />}
                       </div>
                       {pb.fit && (
                         <p className="text-slate-300 text-sm leading-relaxed">

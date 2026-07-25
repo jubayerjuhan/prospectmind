@@ -55,6 +55,7 @@ CRITICAL LABEL INSTRUCTIONS:
 
 PERSONA BREAKDOWN INSTRUCTIONS:
 - Add one "personaBreakdown" entry for EACH role in the prospect's Classification above (use the role name, e.g. "Founder", "Recruiter").
+- "fitScore": a 0-100 number rating how strongly THIS prospect fits THIS specific persona for the campaign. Score each persona independently — a prospect can be a great Talent (e.g. 90) but a weak Founder (e.g. 40). Do NOT copy the overall compatibilityScore to every persona.
 - "fit": 1-2 sentences on WHY this prospect matches that persona, citing concrete evidence from their Enriched Profile.
 - "campaignValue": 1-2 sentences on HOW engaging them as this persona advances THIS specific campaign — explicitly reference the Campaign Description & Goals and the matching target-persona definition provided above.
 - If NO campaign description was provided, still explain each persona's general value, but note the assessment is generic (no campaign context).
@@ -69,7 +70,7 @@ Return JSON:
     "dynamicDimensionName2": { "score": 0-100, "weight": 0.30, "note": "..." }
   },
   "personaBreakdown": [
-    { "persona": "Founder", "fit": "why they fit this persona (evidence-based)", "campaignValue": "how they help this campaign as this persona" }
+    { "persona": "Founder", "fitScore": 0-100, "fit": "why they fit this persona (evidence-based)", "campaignValue": "how they help this campaign as this persona" }
   ],
   "scoreReasoning": "2–3 sentence explanation focusing on campaign fit and persona value",
   "bestContactChannel": "email|linkedin|x|telegram",
