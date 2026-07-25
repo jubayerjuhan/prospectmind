@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import { protect } from '../middleware/auth.js';
-import Persona from '../models/Persona.js';
+import Signal from '../models/Signal.js';
 import { makePromptSettingController } from '../controllers/promptSettingController.js';
 
-const ctrl = makePromptSettingController(Persona, 'Persona');
+const ctrl = makePromptSettingController(Signal, 'Signal', { appliesTo: true });
 
 const router = Router();
 

@@ -9,6 +9,7 @@
     "dev:debug": "NODE_OPTIONS=\"--inspect\" nodemon src/server.js",
     "db:clear-prospects": "node scripts/clear-prospects.js",
     "db:seed-personas": "node scripts/seed-default-personas.js",
+    "db:seed-settings": "node scripts/seed-default-settings.js",
     "db:backfill-company-refs": "node scripts/backfill-company-refs.js",
     "linkedin:login": "node scripts/linkedin-login.mjs",
     "linkedin:cookie": "node scripts/linkedin-cookie.mjs"

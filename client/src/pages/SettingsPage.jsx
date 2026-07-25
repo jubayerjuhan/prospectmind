@@ -5,6 +5,8 @@ import toast from 'react-hot-toast';
 import { Save, Settings, Shield, Zap, Loader2, KeyRound, RefreshCw, ChevronDown } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import PersonasSettings from '../components/settings/PersonasSettings';
+import PlaybooksSettings from '../components/settings/PlaybooksSettings';
+import SignalsSettings from '../components/settings/SignalsSettings';
 
 export default function SettingsPage() {
   const queryClient = useQueryClient();
@@ -287,8 +289,10 @@ export default function SettingsPage() {
 
       </form>
 
-      {/* Personas — first-class scoring settings (v2 redesign, Phase B) */}
+      {/* Prompt-driven settings — first-class Personas / Playbooks / Signals (v2 redesign, Phase B) */}
       <PersonasSettings />
+      <PlaybooksSettings />
+      <SignalsSettings />
     </div>
   );
 }

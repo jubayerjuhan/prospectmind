@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import { protect } from '../middleware/auth.js';
-import Persona from '../models/Persona.js';
+import Playbook from '../models/Playbook.js';
 import { makePromptSettingController } from '../controllers/promptSettingController.js';
 
-const ctrl = makePromptSettingController(Persona, 'Persona');
+const ctrl = makePromptSettingController(Playbook, 'Playbook');
 
 const router = Router();
 

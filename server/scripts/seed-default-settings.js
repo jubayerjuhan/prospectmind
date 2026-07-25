@@ -1,0 +1,154 @@
+import 'dotenv/config';
+import mongoose from 'mongoose';
+import connectDB from '../src/config/db.js';
+import Organization from '../src/models/Organization.js';
+import User from '../src/models/User.js';
+import Persona from '../src/models/Persona.js';
+import Playbook from '../src/models/Playbook.js';
+import Signal from '../src/models/Signal.js';
+
+/**
+ * Seed every organization with the GoodHive default Settings (HLD §3.4.4):
+ * one Persona, one Playbook, one Signal — so day-1 behavior matches the
+ * pre-redesign hardcoded prompts.
+ *
+ * Idempotent: skips anything that already exists (by name, per org). Safe to
+ * re-run. Supersedes seed-default-personas.js (kept for compat).
+ *
+ *   node scripts/seed-default-settings.js
+ */
+
+const DEFAULTS = [
+  {
+    Model: Persona,
+    label: 'Persona',
+    doc: {
+      name: 'Founder hiring Web3 talent',
+      prompt: `You are evaluating whether this prospect matches the "Founder hiring Web3 talent" persona.
+
+Analyze all available information about the person and their company.
+
+Consider:
+- Are they a founder, co-founder, CEO or executive decision maker?
+- Do they work in Web3, blockchain, crypto or digital assets?
+- Are they involved in hiring or building engineering teams?
+- Does their company appear to be growing?
+- Are there any hiring signals or technical expansion plans?
+- Would they likely influence the decision to work with an external recruiting partner?
+
+Give:
+- A score between 0 and 100.
+- A short explanation of the score.
+- The evidence supporting your conclusion.`,
+    },
+  },
+  {
+    Model: Playbook,
+    label: 'Playbook',
+    doc: {
+      name: 'Sell GoodHive to Web3 startups',
+      prompt: `You are writing outreach messages for GoodHive.
+
+GoodHive is a community-driven Web3 recruitment platform specialized in senior blockchain engineers and technical leaders.
+
+Our positioning:
+- Pay only if you hire.
+- Community-validated candidates.
+- Fast access to highly specialized Web3 talent.
+- Trusted by leading Web3 companies.
+
+The objective is to start a conversation, not to sell aggressively.
+
+The tone should be:
+- Professional
+- Friendly
+- Short
+- Personalized
+- Curious
+
+Avoid:
+- Generic sales language
+- Long introductions
+- Overpromising
+- Obvious AI wording
+
+Every message should naturally reference the prospect's background whenever relevant and finish with a simple call to action.`,
+    },
+  },
+  {
+    Model: Signal,
+    label: 'Signal',
+    doc: {
+      name: 'Engineering Hiring Activity',
+      appliesTo: ['company'],
+      prompt: `Determine whether this company is actively hiring technical talent.
+
+Search for evidence such as:
+- Careers page
+- Job boards
+- LinkedIn job postings
+- Engineering openings
+- Public announcements
+- Team expansion
+- Recent funding linked to hiring
+
+If hiring is detected:
+- Estimate the hiring intensity (Low, Medium or High).
+- Identify the technical roles being recruited.
+- Explain why this signal is relevant.
+- List the sources used to support the conclusion.
+
+If no evidence is found, clearly state that no hiring activity could be confirmed.`,
+    },
+  },
+];
+
+async function run() {
+  try {
+    console.log('🔄 Connecting to MongoDB...');
+    await connectDB();
+
+    const orgs = await Organization.find({}).select('_id name').lean();
+    console.log(`Found ${orgs.length} organization(s).\n`);
+
+    let created = 0;
+    let skipped = 0;
+
+    for (const org of orgs) {
+      const user = await User.findOne({ organization: org._id }).select('_id').lean();
+      if (!user) {
+        console.log(`  ⚠  ${org.name || org._id}: no user found, skipping org`);
+        continue;
+      }
+
+      for (const { Model, label, doc } of DEFAULTS) {
+        const existing = await Model.findOne({
+          organization: org._id,
+          name: { $regex: `^${doc.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' },
+        }).lean();
+
+        if (existing) {
+          skipped += 1;
+          continue;
+        }
+
+        await Model.create({
+          organization: org._id,
+          createdBy: user._id,
+          isActive: true,
+          ...doc,
+        });
+        created += 1;
+        console.log(`  ✅ ${org.name || org._id}: seeded ${label} "${doc.name}"`);
+      }
+    }
+
+    console.log(`\n🎉 Done. Created: ${created} | Skipped (existing): ${skipped}`);
+    process.exit(0);
+  } catch (error) {
+    console.error('❌ Error seeding settings:', error);
+    process.exit(1);
+  }
+}
+
+run();

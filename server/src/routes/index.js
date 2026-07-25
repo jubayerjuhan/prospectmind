@@ -6,6 +6,8 @@ import billingRoutes from './billing.js';
 import organizationRoutes from './organization.js';
 import githubTalentRoutes from './githubTalent.js';
 import personaRoutes from './personas.js';
+import playbookRoutes from './playbooks.js';
+import signalRoutes from './signals.js';
 import companyRoutes from './companies.js';
 import aiRoutes from './ai.js';
 
@@ -18,6 +20,8 @@ router.use('/billing', billingRoutes);
 router.use('/organization', organizationRoutes);
 router.use('/github-talent', githubTalentRoutes);
 router.use('/personas', personaRoutes);
+router.use('/playbooks', playbookRoutes);
+router.use('/signals', signalRoutes);
 router.use('/companies', companyRoutes);
 router.use('/ai', aiRoutes);
 
