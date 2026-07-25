@@ -9,26 +9,33 @@
 ## 📋 Task List
 
 ### ⭐ Priority 0 — Architecture Redesign (stakeholder HLD)
-> Full plan + data models: [`redesign-v2.md`](redesign-v2.md). Not started.
+> Full plan + data models: [`redesign-v2.md`](redesign-v2.md). **In progress** — started with Persona (Phase B) as the lowest-risk, additive slice; see notes below the table.
 
 | Phase | Tasks | Status |
 |---|---|---|
 | **A · Company module** | `Company` model + controller + routes (CRUD + analyze); migrate `Prospect.company` string → ref (+ backfill script); point discovery/enrichment at `Company` for company-level data | ⬜ Not started |
-| **B · Settings (Persona/Playbook/Signal)** | Models + CRUD routes/controllers for all three; real Settings page UI; seed each org with GoodHive's current prompts as defaults | ⬜ Not started |
-| **C · Dynamic pipeline** | Replace hardcoded classifier/scorer with loop over active Personas → `personaScores[]`; add Signal-detection layer; make outreach Playbook-driven | ⬜ Not started |
+| **B · Settings (Persona/Playbook/Signal)** | **Persona**: model + CRUD routes/controllers ✅, Settings UI ✅, GoodHive default seeded across all orgs ✅. **Playbook / Signal**: not yet. | 🟡 Persona done; Playbook + Signal pending |
+| **C · Dynamic pipeline** | Persona scoring: active Personas scored via their prompts → `personaScores[]` (additive, campaign-agnostic) ✅. Signal-detection layer ⬜. Playbook-driven outreach ⬜. Note: legacy `compatibilityScore`/`scorer.js` deliberately kept alongside for now (not yet replaced). | 🟡 Persona scoring done; Signals + Playbook outreach pending |
 | **D · Campaign module** | `Campaign` model + controller/routes + execution service; Campaigns page in frontend | ⬜ Not started |
 | **E · Traceability + refresh** | `source`/`confidence`/`lastRefreshedAt` on stored fields; diff-aware refresh endpoints (prospect, company, list, campaign) | ⬜ Not started |
+
+**Progress notes (as of 2026-07-25):**
+- ✅ **Persona is first-class end-to-end** — authored in Settings → pipeline scores every prospect against each active Persona's prompt → `personaScores[]` persists. Verified on real prospects (a research scientist scores high as "talent" but low against a "Founder hiring Web3 talent" persona; a Web3 founder scores 95/100). Committed.
+- **Deliberately additive:** old `compatibilityScore` untouched, so nothing regresses. Persona scoring runs *alongside* it. A later step can promote persona scores to the primary signal once trusted.
+- **Not yet surfaced in the UI** — `personaScores` is stored but the Prospect detail page doesn't display it yet.
+- **Remaining greenfield:** Company module (A), Playbook + Signal models/UI (B), Signal-detection + Playbook-driven outreach (C), Campaign module (D), traceability/refresh (E).
 
 **Open questions (resolve before building):** multiple concurrent campaigns per prospect? drop vs. keep old classification fields during transition? Personas/Playbooks/Signals org-only or platform-level seed? does `Company` get its own plan limit? campaign targeting shape (`ProspectList` vs. ad-hoc/segment)? channel-availability enforcement when a prospect lacks a selected channel?
 
 ### 🔴 Priority 1 — Get It Running (blocking)
-- ⬜ Start MongoDB (`brew services start mongodb-community` or Atlas)
-- ⬜ Set `MONGODB_URI` in `server/.env`
-- ⬜ Run both servers, confirm clean startup (`✅ MongoDB connected`, client on :5173)
-- ⬜ Register an account — test full register flow, org creation, JWT
-- ⬜ Add a prospect manually — verify save with `pipelineStatus: "pending"`
-- ⬜ Watch pipeline run through all 5 stages on the detail page
-- ⬜ Verify Groq output (enrichedProfile, classification, score, messages)
+> Baseline confirmed running 2026-07-25 (Mongo Atlas connected, both servers healthy, pipeline produces real Gemini output; 164 prospects in DB, 69 `ready`).
+- ✅ MongoDB running (Atlas)
+- ✅ `MONGODB_URI` set in `server/.env`
+- ✅ Both servers start clean (server :5001, client :5173)
+- ⬜ Register an account — test full register flow, org creation, JWT *(not re-verified via UI this session)*
+- ⬜ Add a prospect manually — verify save with `pipelineStatus: "pending"` *(not re-verified via UI this session)*
+- ✅ Pipeline runs through all stages (verified end-to-end via runner)
+- ✅ Verify AI output — real Gemini enrichedProfile/classification/score/personaScores (non-fallback), Serper discovery working with refreshed key
 
 ### 🟡 Priority 2 — Polish Core Flow
 - ✅ Upgrade prompt/modal on plan limit
