@@ -15,6 +15,7 @@ import { enrichProfile } from './enrichment.js';
 import { classifyProfile } from './classifier.js';
 import { scoreProfile } from './scorer.js';
 import { scorePersonas } from './personaScorer.js';
+import { detectProspectSignals, detectCompanySignals } from './signalDetector.js';
 import { formatPersonasForPrompt } from '../../utils/personas.js';
 
 const updateStatus = async (prospectId, status, extra = {}) => {
@@ -77,12 +78,20 @@ export const runPipeline = async (prospectId) => {
         prospect.companyRef = company._id;
         await Prospect.findByIdAndUpdate(prospectId, { companyRef: company._id });
 
-        // First-time company analysis (HLD §2.2) — fire-and-forget so the
-        // prospect pipeline never waits on it; cached after the first run.
-        if (!company.aiAnalysis?.lastAnalyzedAt) {
-          analyzeCompany(company).catch((err) =>
-            console.warn(`  ⚠ Company analysis failed for "${company.name}": ${err.message}`)
-          );
+        // First-time company analysis + signal detection (HLD §2.2, §3.3) —
+        // fire-and-forget so the prospect pipeline never waits; both are
+        // cached/persistent after the first run.
+        if (!company.aiAnalysis?.lastAnalyzedAt || !(company.signals || []).length) {
+          analyzeCompany(company)
+            .then((analyzed) => {
+              if (analyzed && !(analyzed.signals || []).length) {
+                return detectCompanySignals(analyzed);
+              }
+              return null;
+            })
+            .catch((err) =>
+              console.warn(`  ⚠ Company analysis/signals failed for "${company.name}": ${err.message}`)
+            );
         }
       }
     } catch (companyErr) {
@@ -190,6 +199,19 @@ export const runPipeline = async (prospectId) => {
     }
     if (await pauseIfRequested(prospectId)) return { success: false, paused: true, prospectId };
 
+    // ── Layer 4.6: Prospect Signal Detection (v2 Phase C) ───────────────────
+    // Run the org's active prospect-level Signal prompts. Best-effort.
+    let prospectSignals = [];
+    try {
+      prospectSignals = await detectProspectSignals(prospect, enrichedProfile, { callAI });
+      if (prospectSignals.length) {
+        console.log(`  → Layer 4.6: Signal Detection (${prospectSignals.length} result(s))`);
+      }
+    } catch (signalErr) {
+      console.warn(`  ⚠ Prospect signal detection skipped: ${signalErr.message}`);
+    }
+    if (await pauseIfRequested(prospectId)) return { success: false, paused: true, prospectId };
+
     // ── Layer 5: Outreach Generation (SKIPPED INITIALLY) ────────────────────
     // We now skip this by default to save tokens. User can trigger manually later.
     const messages = [];
@@ -222,6 +244,7 @@ export const runPipeline = async (prospectId) => {
       scoreBreakdown: scoring.scoreBreakdown,
       personaBreakdown: scoring.personaBreakdown || [],
       personaScores,
+      signals: prospectSignals,
       outreachPriority: scoring.outreachPriority,
       bestContactChannel: scoring.bestContactChannel,
       messages,

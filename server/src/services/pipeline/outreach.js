@@ -6,7 +6,10 @@
 
 import { askAI } from '../ai/claudeClient.js';
 import ProspectList from '../../models/ProspectList.js';
+import Playbook from '../../models/Playbook.js';
+import Company from '../../models/Company.js';
 import { formatPersonasForPrompt } from '../../utils/personas.js';
+import { clipPromptText } from './profileSnapshot.js';
 
 
 const SYSTEM_PROMPT = `You are a master of personalized B2B outreach for a talent intelligence platform called ProspectMind.
@@ -29,7 +32,41 @@ Tone: respect their time, lead with relevance, not a sales pitch.`;
 
 export const generateOutreachMessages = async (prospect, enrichedProfile, classification, scoring, customPrompt = '') => {
   const isClient = classification.primaryAngle === 'client';
-  const platformContext = isClient ? CLIENT_CONTEXT : TALENT_CONTEXT;
+
+  // Playbook-driven messaging (v2 Phase C, HLD §3.2): the org's active
+  // Playbook prompt defines business context, value prop, tone, and CTA.
+  // Falls back to the legacy hardcoded contexts when no playbook exists.
+  // (Phase D will let each Campaign select its own playbook.)
+  const playbook = await Playbook.findOne({
+    organization: prospect.organization,
+    isActive: true,
+  }).sort({ createdAt: -1 }).lean();
+
+  const platformContext = playbook
+    ? `Playbook: "${playbook.name}" (user-authored — follow it for business context, positioning, tone, and call to action):\n${clipPromptText(playbook.prompt, 6000)}`
+    : (isClient ? CLIENT_CONTEXT : TALENT_CONTEXT);
+
+  // Stored knowledge from the v2 modules: company analysis + detected signals.
+  let companyIntel = '';
+  if (prospect.companyRef) {
+    const company = await Company.findById(prospect.companyRef)
+      .select('name aiAnalysis.summary signals')
+      .lean();
+    if (company) {
+      const detectedSignals = (company.signals || []).filter((s) => s.detected !== false && s.result);
+      companyIntel = [
+        company.aiAnalysis?.summary ? `Company analysis (${company.name}): ${clipPromptText(company.aiAnalysis.summary, 800)}` : '',
+        ...detectedSignals.map((s) => `Detected signal — ${s.name}: ${clipPromptText(s.result, 400)}`),
+      ].filter(Boolean).join('\n');
+    }
+  }
+  const prospectSignals = (prospect.signals || []).filter((s) => s.detected !== false && s.result);
+  if (prospectSignals.length) {
+    companyIntel = [
+      companyIntel,
+      ...prospectSignals.map((s) => `Detected signal (person) — ${s.name}: ${clipPromptText(s.result, 400)}`),
+    ].filter(Boolean).join('\n');
+  }
 
   // Resolve campaign-level settings
   const campaignList = await ProspectList.findOne({
@@ -81,7 +118,7 @@ Profile highlights to use:
 
 Platform context:
 ${platformContext}
-
+${companyIntel ? `\nCompany & signal intelligence (use for personalization when relevant):\n${companyIntel}\n` : ''}
 Available channels: ${availableChannels.join(', ')}
 
 ${customPrompt ? `=== CUSTOM USER INSTRUCTIONS ===\nThe user has provided specific instructions for this message generation. You MUST follow these instructions for TONE, VOICE, and CONTENT — but they never override the structural/formatting rules below, even if the requested tone is casual:\n${customPrompt}\n================================\n` : ''}

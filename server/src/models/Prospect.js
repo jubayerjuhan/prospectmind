@@ -168,6 +168,20 @@ const prospectSchema = new mongoose.Schema(
 
     outreachPriority: { type: String, enum: ['high', 'medium', 'low'], default: 'medium' },
 
+    // Detected business signals (v2 Phase C) — results of running the org's
+    // active prospect-level Signal prompts against this prospect.
+    signals: [
+      {
+        _id: false,
+        signal: { type: mongoose.Schema.Types.ObjectId, ref: 'Signal' },
+        name: String, // denormalized signal name for display
+        result: mongoose.Schema.Types.Mixed,
+        confidence: Number,
+        source: String,
+        detectedAt: Date,
+      },
+    ],
+
     // Best contact channel
     bestContactChannel: { type: String, enum: ['email', 'linkedin', 'x', 'telegram'] },
 

@@ -2,6 +2,7 @@ import Company from '../models/Company.js';
 import Prospect from '../models/Prospect.js';
 import { normalizeCompanyName, findOrCreateCompany } from '../services/company/companyService.js';
 import { analyzeCompany } from '../services/company/companyAnalyzer.js';
+import { detectCompanySignals } from '../services/pipeline/signalDetector.js';
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
@@ -187,6 +188,26 @@ export const analyzeCompanyHandler = async (req, res) => {
       data: analyzed,
       analyzed: Boolean(analyzed?.aiAnalysis?.lastAnalyzedAt),
     });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// POST /api/companies/:id/detect-signals
+// Runs the org's active company-level Signals against this company (HLD §3.3).
+export const detectSignalsHandler = async (req, res) => {
+  try {
+    const company = await Company.findOne({
+      _id: req.params.id,
+      organization: req.organization._id,
+    });
+
+    if (!company) {
+      return res.status(404).json({ success: false, message: 'Company not found.' });
+    }
+
+    const entries = await detectCompanySignals(company);
+    res.json({ success: true, data: company, detected: entries.length });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
