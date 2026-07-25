@@ -13,6 +13,8 @@ import ProspectsPage from './pages/ProspectsPage';
 import CompaniesPage from './pages/CompaniesPage';
 import CompanyDetailPage from './pages/CompanyDetailPage';
 import CampaignsPage from './pages/CampaignsPage';
+import OutreachPage from './pages/OutreachPage';
+import OutreachCampaignDetailPage from './pages/OutreachCampaignDetailPage';
 import GithubTalentEnginePage from './pages/GithubTalentEnginePage';
 import GithubTalentCampaignDetailPage from './pages/GithubTalentCampaignDetailPage';
 import ProspectDetailPage from './pages/ProspectDetailPage';
@@ -45,6 +47,8 @@ export default function App() {
             <Route path="companies" element={<CompaniesPage />} />
             <Route path="companies/:id" element={<CompanyDetailPage />} />
             <Route path="campaigns" element={<CampaignsPage />} />
+            <Route path="outreach" element={<OutreachPage />} />
+            <Route path="outreach/:id" element={<OutreachCampaignDetailPage />} />
             <Route path="github-talent-engine" element={<GithubTalentEnginePage />} />
             <Route path="github-talent-engine/:id" element={<GithubTalentCampaignDetailPage />} />
             <Route path="prospects/:id" element={<ProspectDetailPage />} />
