@@ -10,6 +10,7 @@ import ResetPasswordPage from './pages/ResetPasswordPage';
 import VerifyEmailPage from './pages/VerifyEmailPage';
 import DashboardPage from './pages/DashboardPage';
 import ProspectsPage from './pages/ProspectsPage';
+import CompaniesPage from './pages/CompaniesPage';
 import CampaignsPage from './pages/CampaignsPage';
 import GithubTalentEnginePage from './pages/GithubTalentEnginePage';
 import GithubTalentCampaignDetailPage from './pages/GithubTalentCampaignDetailPage';
@@ -40,6 +41,7 @@ export default function App() {
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<DashboardPage />} />
             <Route path="prospects" element={<ProspectsPage />} />
+            <Route path="companies" element={<CompaniesPage />} />
             <Route path="campaigns" element={<CampaignsPage />} />
             <Route path="github-talent-engine" element={<GithubTalentEnginePage />} />
             <Route path="github-talent-engine/:id" element={<GithubTalentCampaignDetailPage />} />

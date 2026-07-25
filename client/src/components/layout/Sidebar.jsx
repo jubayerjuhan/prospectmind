@@ -1,12 +1,13 @@
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { LayoutDashboard, Users, CreditCard, Settings, LogOut, Zap, Megaphone, Code2 } from 'lucide-react';
+import { LayoutDashboard, Users, Building2, CreditCard, Settings, LogOut, Zap, Megaphone, Code2 } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 import api from '../../lib/api';
 
 const nav = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/prospects', icon: Users, label: 'Prospects' },
+  { to: '/companies', icon: Building2, label: 'Companies' },
   { to: '/campaigns', icon: Megaphone, label: 'Campaigns' },
   { to: '/github-talent-engine', icon: Code2, label: 'Talent Engine' },
   { to: '/billing', icon: CreditCard, label: 'Billing' },
