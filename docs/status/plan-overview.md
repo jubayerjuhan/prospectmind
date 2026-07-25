@@ -13,8 +13,8 @@
 
 | Phase | Tasks | Status |
 |---|---|---|
-| **A · Company module** | `Company` model + controller + routes (CRUD + analyze); migrate `Prospect.company` string → ref (+ backfill script); point discovery/enrichment at `Company` for company-level data | ⬜ Not started |
-| **B · Settings (Persona/Playbook/Signal)** | **Persona**: model + CRUD routes/controllers ✅, Settings UI ✅, GoodHive default seeded across all orgs ✅. **Playbook / Signal**: not yet. | 🟡 Persona done; Playbook + Signal pending |
+| **A · Company module** | `Company` model + CRUD + `/api/companies` ✅; `Prospect.companyRef` added *alongside* the string (additive, no rename) + backfill (119 prospects → 61 companies) ✅; independent AI analysis (auto website discovery → scrape → summary/industry/size, cached, sourceRefs provenance) with `POST /:id/analyze` + auto-run on first pipeline link ✅; Companies page in sidebar ✅. Remaining: migrate string readers to the ref, then drop the string. | ✅ Done (additive; string migration deferred) |
+| **B · Settings (Persona/Playbook/Signal)** | All three models + shared CRUD factory + routes ✅; Settings UI cards for all three (Signals with applies-to) ✅; GoodHive defaults seeded across all orgs (persona + playbook + signal, `db:seed-settings`) ✅ | ✅ Done |
 | **C · Dynamic pipeline** | Persona scoring: active Personas scored via their prompts → `personaScores[]` (additive, campaign-agnostic) ✅. Signal-detection layer ⬜. Playbook-driven outreach ⬜. Note: legacy `compatibilityScore`/`scorer.js` deliberately kept alongside for now (not yet replaced). | 🟡 Persona scoring done; Signals + Playbook outreach pending |
 | **D · Campaign module** | `Campaign` model + controller/routes + execution service; Campaigns page in frontend | ⬜ Not started |
 | **E · Traceability + refresh** | `source`/`confidence`/`lastRefreshedAt` on stored fields; diff-aware refresh endpoints (prospect, company, list, campaign) | ⬜ Not started |
