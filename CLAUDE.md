@@ -50,6 +50,7 @@ prospectmind/
 | What is done / what is broken right now | `docs/status/current.md` |
 | What to work on next (immediate todos) | `docs/status/todos.md` |
 | Phase 2 & 3 features, long-term roadmap | `docs/status/roadmap.md` |
+| New stakeholder HLD pivot (Company/Persona/Playbook/Signal/Campaign) | `docs/status/redesign-v2.md` |
 | API endpoints reference | `docs/api/endpoints.md` |
 | Frontend pages, components, routing | `docs/features/frontend.md` |
 
