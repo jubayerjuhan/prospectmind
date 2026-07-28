@@ -6,7 +6,6 @@
 import Prospect from '../../models/Prospect.js';
 import Organization from '../../models/Organization.js';
 import ProspectList from '../../models/ProspectList.js';
-import Persona from '../../models/Persona.js';
 import { findOrCreateCompany } from '../company/companyService.js';
 import { analyzeCompany } from '../company/companyAnalyzer.js';
 import { askAI } from '../ai/claudeClient.js';
@@ -16,7 +15,7 @@ import { classifyProfile } from './classifier.js';
 import { scoreProfile } from './scorer.js';
 import { scorePersonas } from './personaScorer.js';
 import { detectProspectSignals, detectCompanySignals } from './signalDetector.js';
-import { formatPersonasForPrompt } from '../../utils/personas.js';
+import { formatPersonasForPrompt, loadCampaignPersonas } from '../../utils/personas.js';
 
 const updateStatus = async (prospectId, status, extra = {}) => {
   await Prospect.findByIdAndUpdate(prospectId, { pipelineStatus: status, ...extra });
@@ -68,6 +67,14 @@ export const runPipeline = async (prospectId) => {
   // Load organization settings
   const org = await Organization.findById(prospect.organization);
 
+  // Resolve campaign-level settings — prefer the first manual campaign containing this prospect
+  const campaignList = await ProspectList.findOne({
+    organization: prospect.organization,
+    type: 'manual',
+    isArchived: false,
+    prospects: prospect._id,
+  }).lean();
+
   // Link the prospect to a first-class Company (v2 Phase A). Single integration
   // point covering every creation path (single/bulk/add-and-create/import),
   // since they all flow through the pipeline. Best-effort — never block the run.
@@ -85,7 +92,7 @@ export const runPipeline = async (prospectId) => {
           analyzeCompany(company)
             .then((analyzed) => {
               if (analyzed && !(analyzed.signals || []).length) {
-                return detectCompanySignals(analyzed);
+                return detectCompanySignals(analyzed, { selectedSignalIds: campaignList?.signals || [] });
               }
               return null;
             })
@@ -99,14 +106,6 @@ export const runPipeline = async (prospectId) => {
     }
   }
 
-  // Resolve campaign-level settings — prefer the first manual campaign containing this prospect
-  const campaignList = await ProspectList.findOne({
-    organization: prospect.organization,
-    type: 'manual',
-    isArchived: false,
-    prospects: prospect._id,
-  }).lean();
-
   const campaignDescription =
     (campaignList?.campaignDescription?.trim()) ||
     org?.settings?.campaignDescription ||
@@ -118,9 +117,12 @@ export const runPipeline = async (prospectId) => {
     org?.settings?.defaultEcosystem ||
     '';
 
-  const personaBlock = formatPersonasForPrompt(campaignList?.targetPersonas);
+  // The campaign's selected Personas (or every active one) drive both the
+  // scoring context below and Layer 4.5's per-persona scoring.
+  const campaignPersonas = await loadCampaignPersonas(campaignList || { organization: prospect.organization });
+  const personaBlock = formatPersonasForPrompt(campaignPersonas);
   const personaContext = personaBlock
-    ? `Target Personas for this campaign (the user is specifically looking for these persona types — use each description to judge how well the prospect fits):\n${personaBlock}`
+    ? `Target Personas for this campaign (the user is specifically looking for these persona types — use each definition to judge how well the prospect fits):\n${personaBlock}`
     : '';
 
   const fullCampaignContext = [
@@ -175,24 +177,18 @@ export const runPipeline = async (prospectId) => {
     if (await pauseIfRequested(prospectId)) return { success: false, paused: true, prospectId };
 
     // ── Layer 4.5: Persona Scoring (v2 Phase C) ─────────────────────────────
-    // Score against the org's active first-class Personas using their
-    // user-authored prompts. Additive — does not affect compatibilityScore.
+    // Score against the campaign's selected Personas using their user-authored
+    // prompts. Additive — does not affect compatibilityScore.
     // Failures here must not break the pipeline (best-effort enrichment).
     let personaScores = [];
     try {
-      const activePersonas = await Persona.find({
-        organization: prospect.organization,
-        isActive: true,
-      }).select('_id name prompt').lean();
-
-      if (activePersonas.length) {
-        console.log(`  → Layer 4.5: Persona Scoring (${activePersonas.length} active persona(s))`);
-        // Persona scoring is intentionally campaign-agnostic (HLD §3.1): it judges
-        // how well the prospect matches the persona TYPE, so the scores are
-        // reusable across campaigns. Campaign-specific fit is a separate concern.
+      if (campaignPersonas.length) {
+        console.log(`  → Layer 4.5: Persona Scoring (${campaignPersonas.length} persona(s))`);
+        // Each persona is scored on its own definition (HLD §3.1): how well the
+        // prospect matches that persona TYPE, so scores stay reusable.
         // `companyContext` is reserved for real Company analysis (Phase A), not
         // the campaign description.
-        personaScores = await scorePersonas(prospect, enrichedProfile, activePersonas, { callAI });
+        personaScores = await scorePersonas(prospect, enrichedProfile, campaignPersonas, { callAI });
       }
     } catch (personaErr) {
       console.warn(`  ⚠ Persona scoring skipped: ${personaErr.message}`);
@@ -203,7 +199,10 @@ export const runPipeline = async (prospectId) => {
     // Run the org's active prospect-level Signal prompts. Best-effort.
     let prospectSignals = [];
     try {
-      prospectSignals = await detectProspectSignals(prospect, enrichedProfile, { callAI });
+      prospectSignals = await detectProspectSignals(prospect, enrichedProfile, {
+        callAI,
+        selectedSignalIds: campaignList?.signals || [],
+      });
       if (prospectSignals.length) {
         console.log(`  → Layer 4.6: Signal Detection (${prospectSignals.length} result(s))`);
       }

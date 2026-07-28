@@ -13,6 +13,8 @@ import {
   updateProspectList,
   pauseCampaign,
   resumeCampaign,
+  getCampaignOutreach,
+  generateCampaignOutreach,
 } from '../controllers/prospectListController.js';
 
 const router = Router();
@@ -29,6 +31,8 @@ router.post('/:id/add-and-create', addAndCreateProspect);
 router.delete('/:id/prospects', removeProspectsFromList);
 router.post('/:id/import-preview', importProspectPreview);
 router.post('/:id/import-confirm', importProspectsConfirm);
+router.get('/:id/outreach', getCampaignOutreach);
+router.post('/:id/outreach/generate', generateCampaignOutreach);
 router.post('/:id/pause', pauseCampaign);
 router.post('/:id/resume', resumeCampaign);
 

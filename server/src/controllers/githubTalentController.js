@@ -3,8 +3,23 @@ import GithubTalentCampaign from '../models/GithubTalentCampaign.js';
 import ProspectList from '../models/ProspectList.js';
 import { generateKeywords } from '../services/scraper/githubTalentScraper.js';
 import { queueGithubTalentCampaign } from '../services/pipeline/githubTalentQueue.js';
+import { ensurePersonas } from '../utils/personas.js';
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Personas every GitHub Talent Engine campaign targets. */
+const GTE_DEFAULT_PERSONAS = [
+  {
+    name: 'Top-gun Developer',
+    prompt:
+      'You are evaluating whether this prospect is a highly skilled, active open-source engineer. Look for public repositories and contributions that demonstrate strong technical depth in the target ecosystem: substantial original code (not forks or tutorials), sustained recent activity, and work others depend on. Score higher for depth in the target stack and evidence of shipping real systems; lower for inactive accounts or shallow contribution history.',
+  },
+  {
+    name: 'Founder',
+    prompt:
+      'You are evaluating whether this prospect is a technical founder or co-founder building in the target ecosystem — someone who could become a client or hiring partner. Look for signals of company-building: founder/CTO titles, a product or protocol they lead, funding or launch activity, and hiring on their team. Score higher when they are clearly running a team that needs engineers; lower for individual contributors with no company of their own.',
+  },
+];
 
 export const getCampaigns = async (req, res) => {
   try {
@@ -88,7 +103,15 @@ export const createCampaign = async (req, res) => {
     // 1. Generate keywords
     const keywords = await generateKeywords(talentDescription, preferredAiModel);
 
-    // 2. Create backing ProspectList
+    // 2. Create backing ProspectList (the campaign), seeded with the two
+    // personas GTE targets — find-or-created as real, reusable Personas so they
+    // are editable in Settings like any other.
+    const personas = await ensurePersonas({
+      organization: req.organization._id,
+      createdBy: req.user._id,
+      definitions: GTE_DEFAULT_PERSONAS,
+    });
+
     const prospectList = await ProspectList.create({
       organization: req.organization._id,
       createdBy: req.user._id,
@@ -97,10 +120,7 @@ export const createCampaign = async (req, res) => {
       campaignDescription: talentDescription,
       targetEcosystemContext,
       preferredAiModel,
-      targetPersonas: [
-        { name: 'Top-gun Developer', description: 'A highly skilled, active open-source engineer whose public repositories and contributions demonstrate strong technical depth in the target ecosystem.' },
-        { name: 'Founder', description: 'A technical founder or co-founder building in the target ecosystem, who could become a client or hiring partner.' },
-      ] // Default personas for GTE
+      personas,
     });
 
     // 3. Create GTE campaign

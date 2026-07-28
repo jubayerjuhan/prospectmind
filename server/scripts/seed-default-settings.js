@@ -43,6 +43,58 @@ Give:
     },
   },
   {
+    Model: Persona,
+    label: 'Persona',
+    doc: {
+      name: 'Recruiter',
+      prompt: `You are evaluating whether this prospect matches the "Recruiter" persona.
+
+Analyze all available information about the person and their company.
+
+Consider:
+- Is recruiting, talent acquisition or people/HR their actual job (in-house recruiter, talent partner, agency recruiter, headhunter, sourcer)?
+- Do they recruit technical roles — engineers, blockchain/Web3 developers, technical leadership — rather than only non-technical ones?
+- Do they own or influence the choice of sourcing channels and hiring partners?
+- Is there evidence of live hiring: open roles they are posting, active sourcing, "we're hiring" activity?
+- Do they work in or adjacent to Web3, blockchain, crypto or digital assets?
+- Are they senior enough to bring in an external recruiting partner, or are they purely executing someone else's process?
+
+Score higher when recruiting technical talent is clearly their day job and they have live roles to fill.
+Score lower for hiring managers who occasionally interview, for HR generalists with no technical remit, or for people whose recruiting work is historical rather than current.
+
+Give:
+- A score between 0 and 100.
+- A short explanation of the score.
+- The evidence supporting your conclusion.`,
+    },
+  },
+  {
+    Model: Persona,
+    label: 'Persona',
+    doc: {
+      name: 'Founder',
+      prompt: `You are evaluating whether this prospect matches the "Founder" persona.
+
+Analyze all available information about the person and their company.
+
+Consider:
+- Are they a founder, co-founder, CEO or owner of the company — someone who started it, not just an employee of it?
+- Is the company real and active (a product, protocol, users, funding, public traction) rather than an idea or a dormant side project?
+- What stage are they at (pre-seed, seed, Series A+) and is the team growing?
+- Are they hands-on with the product and the team, or a passive/serial title-holder across many ventures?
+- Do they operate in Web3, blockchain, crypto or digital assets?
+- Do they hold final decision authority on budget, hiring and vendor choices?
+
+Score higher for active, hands-on founders of a growing company where they clearly decide.
+Score lower for advisors, angel investors, "founder" titles on inactive ventures, or employees mislabelled as founders.
+
+Give:
+- A score between 0 and 100.
+- A short explanation of the score.
+- The evidence supporting your conclusion.`,
+    },
+  },
+  {
     Model: Playbook,
     label: 'Playbook',
     doc: {

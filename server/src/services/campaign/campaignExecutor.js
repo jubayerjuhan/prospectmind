@@ -1,19 +1,21 @@
 /**
- * Campaign Execution (v2 Phase D, HLD §2.3, §4 step 7).
+ * Campaign Outreach Generation (HLD §2.3, §4 step 7).
  *
- * Generates a complete per-prospect outreach sequence from knowledge that is
- * ALREADY STORED — prospect analysis, persona scores, company analysis,
- * detected signals — combined with the campaign's Persona + Playbook +
- * sequence configuration. A campaign never analyzes and never re-runs the
+ * Generates a per-prospect outreach sequence from knowledge that is ALREADY
+ * STORED — prospect analysis, persona scores, company analysis, detected
+ * signals — combined with the campaign's own strategy (selected Playbook +
+ * Personas + sequence). Generation never analyzes and never re-runs the
  * pipeline; prospects that aren't ready are skipped with a reason.
+ *
+ * The campaign is a ProspectList document (see models/ProspectList.js) — the
+ * outreach state lives on `list.outreach`.
  */
 
-import Campaign from '../../models/Campaign.js';
+import ProspectList from '../../models/ProspectList.js';
 import Prospect from '../../models/Prospect.js';
 import Company from '../../models/Company.js';
 import Persona from '../../models/Persona.js';
 import Playbook from '../../models/Playbook.js';
-import ProspectList from '../../models/ProspectList.js';
 import { askClaude, AIFallbackRequiredError } from '../ai/claudeClient.js';
 import { buildProfileSnapshot, clipPromptText } from '../pipeline/profileSnapshot.js';
 import { buildProspectFilter } from '../../utils/buildProspectFilter.js';
@@ -26,31 +28,52 @@ Each step must build on the previous one (a follow-up references the earlier tou
 Follow the provided Playbook exactly for business context, positioning, tone, and call to action.
 Always return valid JSON.`;
 
-/** Resolve the campaign's target prospects from its ProspectList. */
+/** Resolve the campaign's target prospects (manual membership or saved filters). */
 const resolveTargetProspects = async (campaign) => {
-  const list = await ProspectList.findOne({
-    _id: campaign.targetList,
-    organization: campaign.organization,
-  }).lean();
-  if (!list) return [];
-
-  if (list.type === 'dynamic') {
+  if (campaign.type === 'dynamic') {
     const filter = buildProspectFilter({
       organizationId: campaign.organization,
-      search: list.filters?.search || '',
-      status: list.filters?.status || '',
-      priority: list.filters?.priority || '',
+      search: campaign.filters?.search || '',
+      status: campaign.filters?.status || '',
+      priority: campaign.filters?.priority || '',
     });
     return Prospect.find(filter).limit(MAX_PROSPECTS_PER_EXECUTION).lean();
   }
 
   return Prospect.find({
-    _id: { $in: list.prospects || [] },
+    _id: { $in: campaign.prospects || [] },
     organization: campaign.organization,
     isArchived: false,
   })
     .limit(MAX_PROSPECTS_PER_EXECUTION)
     .lean();
+};
+
+/**
+ * Resolve which Playbook this run should use: the explicitly requested one, the
+ * campaign's first selected playbook, or the org's newest active playbook.
+ */
+const resolvePlaybook = async (campaign, requestedPlaybookId) => {
+  const candidateIds = [requestedPlaybookId, ...(campaign.playbooks || [])].filter(Boolean);
+
+  for (const id of candidateIds) {
+    const playbook = await Playbook.findOne({ _id: id, organization: campaign.organization }).lean();
+    if (playbook) return playbook;
+  }
+
+  return Playbook.findOne({ organization: campaign.organization, isActive: true })
+    .sort({ createdAt: -1 })
+    .lean();
+};
+
+/** The Personas this campaign targets — its selection, or every active one. */
+const resolvePersonas = async (campaign) => {
+  const selected = campaign.personas || [];
+  const query = selected.length
+    ? { _id: { $in: selected }, organization: campaign.organization }
+    : { organization: campaign.organization, isActive: true };
+
+  return Persona.find(query).select('_id name prompt').lean();
 };
 
 /** Channels this prospect is actually reachable on, from stored enrichment. */
@@ -63,13 +86,28 @@ const availableChannelsFor = (enrichedProfile = {}) => {
   return channels;
 };
 
-/** Build the stored-knowledge block for one prospect (no fresh analysis). */
-const buildKnowledgeBlock = async (prospect, personaId) => {
-  const snapshot = buildProfileSnapshot(prospect.enrichedProfile || {});
+/**
+ * Pick the persona to address this prospect as: the campaign persona they score
+ * highest against. Falls back to the first campaign persona when the prospect
+ * has no stored score for any of them.
+ */
+const pickPersonaFor = (prospect, personas) => {
+  const scores = prospect.personaScores || [];
+  let best = null;
 
-  const personaScoreEntry = (prospect.personaScores || []).find(
-    (s) => s.persona?.toString() === personaId.toString()
-  );
+  for (const persona of personas) {
+    const entry = scores.find((s) => s.persona?.toString() === persona._id.toString());
+    if (entry && typeof entry.score === 'number' && (!best || entry.score > best.score)) {
+      best = { persona, score: entry.score, reasoning: entry.reasoning };
+    }
+  }
+
+  return best || { persona: personas[0], score: null, reasoning: '' };
+};
+
+/** Build the stored-knowledge block for one prospect (no fresh analysis). */
+const buildKnowledgeBlock = async (prospect, personaScoreEntry) => {
+  const snapshot = buildProfileSnapshot(prospect.enrichedProfile || {});
 
   let companyBlock = '';
   if (prospect.companyRef) {
@@ -90,22 +128,18 @@ const buildKnowledgeBlock = async (prospect, personaId) => {
     .map((s) => `Person signal — ${s.name}: ${clipPromptText(s.result, 300)}`)
     .join('\n');
 
-  return {
-    snapshot,
-    personaScoreEntry,
-    knowledgeText: [
-      `Profile: ${clipPromptText(JSON.stringify(snapshot), 2500)}`,
-      personaScoreEntry
-        ? `Persona fit (stored): ${personaScoreEntry.score}/100 — ${clipPromptText(personaScoreEntry.reasoning, 400)}`
-        : '',
-      companyBlock,
-      prospectSignals,
-    ].filter(Boolean).join('\n\n'),
-  };
+  return [
+    `Profile: ${clipPromptText(JSON.stringify(snapshot), 2500)}`,
+    personaScoreEntry?.score != null
+      ? `Persona fit (stored): ${personaScoreEntry.score}/100 — ${clipPromptText(personaScoreEntry.reasoning || '', 400)}`
+      : '',
+    companyBlock,
+    prospectSignals,
+  ].filter(Boolean).join('\n\n');
 };
 
-const generateSequenceForProspect = async ({ prospect, persona, playbook, sequence, callAI }) => {
-  const { personaScoreEntry, knowledgeText } = await buildKnowledgeBlock(prospect, persona._id);
+const generateSequenceForProspect = async ({ prospect, personaPick, playbook, sequence, campaignGoal, callAI }) => {
+  const knowledgeText = await buildKnowledgeBlock(prospect, personaPick);
   const available = availableChannelsFor(prospect.enrichedProfile);
 
   // Per-step channel with fallback: keep the configured channel when the
@@ -126,10 +160,10 @@ const generateSequenceForProspect = async ({ prospect, persona, playbook, sequen
 
 === PLAYBOOK (user-authored — follow for context, positioning, tone, CTA) ===
 ${clipPromptText(playbook.prompt, 6000)}
-
+${campaignGoal ? `\n=== CAMPAIGN GOAL (what this specific campaign is trying to achieve) ===\n${clipPromptText(campaignGoal, 2000)}\n` : ''}
 === TARGET PERSONA (who we are addressing them as) ===
-${persona.name}
-${clipPromptText(persona.prompt, 1500)}
+${personaPick.persona.name}
+${clipPromptText(personaPick.persona.prompt, 1500)}
 
 === STORED PROSPECT KNOWLEDGE (already analyzed — use for personalization) ===
 Prospect: ${prospect.firstName} ${prospect.lastName || ''} @ ${prospect.company || 'Unknown'}
@@ -153,7 +187,7 @@ Return JSON — one object per step, same order:
 ]`;
 
   const result = await callAI({ systemPrompt: SYSTEM_PROMPT, userPrompt, maxTokens: 2048, jsonMode: true, thinkingBudget: 0 });
-  const messages = (Array.isArray(result) ? result : [])
+  return (Array.isArray(result) ? result : [])
     .filter((m) => m && typeof m.body === 'string')
     .map((m, i) => ({
       stepOrder: Number(m.stepOrder) || steps[i]?.stepOrder || i + 1,
@@ -162,37 +196,59 @@ Return JSON — one object per step, same order:
       subject: m.subject || null,
       body: m.body,
     }));
-
-  return { messages, personaScore: personaScoreEntry?.score ?? null };
 };
 
 /**
- * Execute a campaign: generate the outreach sequence for every ready prospect
- * in its target list, from stored knowledge only. Updates campaign.status and
- * stores per-prospect results on the campaign document.
+ * Generate the outreach sequence for every ready prospect in a campaign, from
+ * stored knowledge only. Updates `campaign.outreach` in place.
+ *
+ * @param {String} campaignId   ProspectList _id
+ * @param {Object} opts
+ * @param {String} opts.playbookId Playbook to write with (defaults to the campaign's first)
+ * @param {Function} opts.callAI   AI caller (defaults to askClaude)
  */
-export const executeCampaign = async (campaignId, { callAI = askClaude } = {}) => {
-  const campaign = await Campaign.findById(campaignId);
+export const executeCampaignOutreach = async (campaignId, { playbookId, callAI = askClaude } = {}) => {
+  const campaign = await ProspectList.findById(campaignId);
   if (!campaign) throw new Error(`Campaign ${campaignId} not found`);
 
-  const [persona, playbook] = await Promise.all([
-    Persona.findOne({ _id: campaign.persona, organization: campaign.organization }).lean(),
-    Playbook.findOne({ _id: campaign.playbook, organization: campaign.organization }).lean(),
+  const [playbook, personas] = await Promise.all([
+    resolvePlaybook(campaign, playbookId),
+    resolvePersonas(campaign),
   ]);
-  if (!persona || !playbook) {
-    campaign.status = 'failed';
-    campaign.executionError = 'Campaign persona or playbook no longer exists.';
+
+  if (!playbook) {
+    campaign.outreach.status = 'failed';
+    campaign.outreach.error = 'No playbook available. Create one in Settings, then select it for this campaign.';
+    await campaign.save();
+    return campaign;
+  }
+  if (!personas.length) {
+    campaign.outreach.status = 'failed';
+    campaign.outreach.error = 'No persona available. Create one in Settings, then select it for this campaign.';
     await campaign.save();
     return campaign;
   }
 
-  campaign.status = 'generating';
-  campaign.executionError = null;
+  campaign.outreach.status = 'generating';
+  campaign.outreach.error = null;
+  campaign.outreach.playbook = playbook._id;
   await campaign.save();
+
+  // The campaign goal gives the writer campaign-specific intent on top of the
+  // playbook's reusable positioning. (Each prospect's own persona definition is
+  // added per-message in generateSequenceForProspect.)
+  const campaignGoal = [
+    campaign.campaignDescription?.trim(),
+    campaign.targetEcosystemContext?.trim() ? `Target ecosystem / context: ${campaign.targetEcosystemContext.trim()}` : '',
+  ].filter(Boolean).join('\n\n');
+
+  const sequence = campaign.sequence?.length
+    ? campaign.sequence
+    : [{ stepOrder: 1, channel: 'email', delayDays: 0 }];
 
   try {
     const prospects = await resolveTargetProspects(campaign);
-    console.log(`[campaign] Executing "${campaign.name}" — ${prospects.length} prospect(s)`);
+    console.log(`[campaign] Generating outreach for "${campaign.name}" — ${prospects.length} prospect(s), playbook "${playbook.name}"`);
 
     const results = [];
     for (const prospect of prospects) {
@@ -203,29 +259,33 @@ export const executeCampaign = async (campaignId, { callAI = askClaude } = {}) =
           prospect: prospect._id,
           prospectName: name,
           status: 'skipped',
-          skipReason: `Pipeline not ready (${prospect.pipelineStatus}). Campaigns only use existing analysis.`,
+          skipReason: `Pipeline not ready (${prospect.pipelineStatus}). Outreach only uses existing analysis.`,
           messages: [],
         });
         continue;
       }
 
+      const personaPick = pickPersonaFor(prospect, personas);
+
       try {
-        const { messages, personaScore } = await generateSequenceForProspect({
+        const messages = await generateSequenceForProspect({
           prospect,
-          persona,
+          personaPick,
           playbook,
-          sequence: campaign.sequence,
+          sequence,
+          campaignGoal,
           callAI,
         });
         results.push({
           prospect: prospect._id,
           prospectName: name,
           status: 'generated',
-          personaScore,
+          personaName: personaPick.persona.name,
+          personaScore: personaPick.score,
           messages,
           generatedAt: new Date(),
         });
-        console.log(`[campaign]   ✅ ${name} — ${messages.length} step(s)`);
+        console.log(`[campaign]   ✅ ${name} — ${messages.length} step(s) as "${personaPick.persona.name}"`);
       } catch (err) {
         const reason = err instanceof AIFallbackRequiredError ? 'AI unavailable' : err.message;
         results.push({
@@ -239,15 +299,15 @@ export const executeCampaign = async (campaignId, { callAI = askClaude } = {}) =
       }
     }
 
-    campaign.results = results;
-    campaign.status = 'ready';
-    campaign.lastExecutedAt = new Date();
+    campaign.outreach.results = results;
+    campaign.outreach.status = 'ready';
+    campaign.outreach.lastGeneratedAt = new Date();
     await campaign.save();
-    console.log(`[campaign] ✅ "${campaign.name}" ready — ${results.filter((r) => r.status === 'generated').length} generated, ${results.filter((r) => r.status === 'skipped').length} skipped`);
+    console.log(`[campaign] ✅ "${campaign.name}" outreach ready — ${results.filter((r) => r.status === 'generated').length} generated, ${results.filter((r) => r.status === 'skipped').length} skipped`);
     return campaign;
   } catch (error) {
-    campaign.status = 'failed';
-    campaign.executionError = error.message;
+    campaign.outreach.status = 'failed';
+    campaign.outreach.error = error.message;
     await campaign.save();
     throw error;
   }

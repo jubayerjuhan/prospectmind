@@ -10,9 +10,8 @@ import mongoose from 'mongoose';
  * score. This replaces the hardcoded scoring rubric so behavior is configurable
  * without changing core code.
  *
- * NOTE: This is distinct from the legacy inline `targetPersonas: [{ name,
- * description }]` sub-doc on ProspectList — those are per-campaign hints. A
- * first-class Persona is org-wide, reusable, and prompt-driven.
+ * Personas are org-wide and reusable. A campaign selects the ones it targets
+ * (`ProspectList.personas`); selecting none means every active Persona runs.
  */
 const personaSchema = new mongoose.Schema(
   {

@@ -8,7 +8,7 @@ import { askAI } from '../ai/claudeClient.js';
 import ProspectList from '../../models/ProspectList.js';
 import Playbook from '../../models/Playbook.js';
 import Company from '../../models/Company.js';
-import { formatPersonasForPrompt } from '../../utils/personas.js';
+import { formatPersonasForPrompt, loadCampaignPersonas } from '../../utils/personas.js';
 import { clipPromptText } from './profileSnapshot.js';
 
 
@@ -33,14 +33,29 @@ Tone: respect their time, lead with relevance, not a sales pitch.`;
 export const generateOutreachMessages = async (prospect, enrichedProfile, classification, scoring, customPrompt = '') => {
   const isClient = classification.primaryAngle === 'client';
 
-  // Playbook-driven messaging (v2 Phase C, HLD §3.2): the org's active
-  // Playbook prompt defines business context, value prop, tone, and CTA.
-  // Falls back to the legacy hardcoded contexts when no playbook exists.
-  // (Phase D will let each Campaign select its own playbook.)
-  const playbook = await Playbook.findOne({
+  // Resolve campaign-level settings
+  const campaignList = await ProspectList.findOne({
     organization: prospect.organization,
-    isActive: true,
-  }).sort({ createdAt: -1 }).lean();
+    type: 'manual',
+    isArchived: false,
+    prospects: prospect._id,
+  }).lean();
+
+  // Playbook-driven messaging (v2 Phase C, HLD §3.2): the Playbook prompt
+  // defines business context, value prop, tone, and CTA. Prefer the campaign's
+  // own selection, then the org's newest active Playbook, and finally fall back
+  // to the legacy hardcoded contexts when the org has no playbook at all.
+  const playbook =
+    (campaignList?.playbooks?.length
+      ? await Playbook.findOne({
+          _id: { $in: campaignList.playbooks },
+          organization: prospect.organization,
+        }).lean()
+      : null) ||
+    (await Playbook.findOne({
+      organization: prospect.organization,
+      isActive: true,
+    }).sort({ createdAt: -1 }).lean());
 
   const platformContext = playbook
     ? `Playbook: "${playbook.name}" (user-authored — follow it for business context, positioning, tone, and call to action):\n${clipPromptText(playbook.prompt, 6000)}`
@@ -68,19 +83,13 @@ export const generateOutreachMessages = async (prospect, enrichedProfile, classi
     ].filter(Boolean).join('\n');
   }
 
-  // Resolve campaign-level settings
-  const campaignList = await ProspectList.findOne({
-    organization: prospect.organization,
-    type: 'manual',
-    isArchived: false,
-    prospects: prospect._id,
-  }).lean();
-
   const campaignDescription = campaignList?.campaignDescription?.trim() || '';
   const targetEcosystemContext = campaignList?.targetEcosystemContext?.trim() || '';
-  const personaBlock = formatPersonasForPrompt(campaignList?.targetPersonas);
+  const personaBlock = formatPersonasForPrompt(
+    await loadCampaignPersonas(campaignList || { organization: prospect.organization })
+  );
   const targetPersonas = personaBlock
-    ? `Target Personas (with a description of who each is and what the user wants from them):\n${personaBlock}`
+    ? `Target Personas (each definition says who they are and what the user wants from them):\n${personaBlock}`
     : '';
 
   const campaignContext = [

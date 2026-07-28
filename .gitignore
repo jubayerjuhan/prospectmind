@@ -11,3 +11,6 @@ logs/
 # Invoices
 server/Invoice_June_2026.pdf
 *.pdf
+.env.save
+*.env.save
+.env.*.save

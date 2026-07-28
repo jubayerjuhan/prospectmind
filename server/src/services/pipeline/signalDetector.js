@@ -76,8 +76,19 @@ const searchSnippets = async (query) => {
   }
 };
 
-export const getActiveSignals = (organizationId, appliesTo) =>
-  Signal.find({ organization: organizationId, isActive: true, appliesTo }).select('_id name prompt').lean();
+/**
+ * Signals to run for a target. When a campaign has selected specific Signals,
+ * only those run (still filtered by `appliesTo`); otherwise every active Signal
+ * in the org does.
+ */
+export const getActiveSignals = (organizationId, appliesTo, selectedIds = []) =>
+  Signal.find(
+    selectedIds?.length
+      ? { organization: organizationId, appliesTo, _id: { $in: selectedIds } }
+      : { organization: organizationId, isActive: true, appliesTo }
+  )
+    .select('_id name prompt')
+    .lean();
 
 /**
  * Detect company-level signals and persist them on the Company doc.
@@ -85,8 +96,8 @@ export const getActiveSignals = (organizationId, appliesTo) =>
  *
  * @returns {Promise<Array>} the stored signal entries
  */
-export const detectCompanySignals = async (company, { callAI = askClaude } = {}) => {
-  const signals = await getActiveSignals(company.organization, 'company');
+export const detectCompanySignals = async (company, { callAI = askClaude, selectedSignalIds = [] } = {}) => {
+  const signals = await getActiveSignals(company.organization, 'company', selectedSignalIds);
   if (!signals.length) return company.signals || [];
 
   console.log(`[signalDetector] Detecting ${signals.length} company signal(s) for "${company.name}"`);
@@ -122,8 +133,8 @@ export const detectCompanySignals = async (company, { callAI = askClaude } = {})
  * Detect prospect-level signals. Returns entries for the caller to persist
  * (the pipeline runner saves them with the rest of its results).
  */
-export const detectProspectSignals = async (prospect, enrichedProfile, { callAI = askClaude } = {}) => {
-  const signals = await getActiveSignals(prospect.organization, 'prospect');
+export const detectProspectSignals = async (prospect, enrichedProfile, { callAI = askClaude, selectedSignalIds = [] } = {}) => {
+  const signals = await getActiveSignals(prospect.organization, 'prospect', selectedSignalIds);
   if (!signals.length) return [];
 
   console.log(`[signalDetector] Detecting ${signals.length} prospect signal(s) for ${prospect.firstName}`);

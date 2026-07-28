@@ -1,10 +1,13 @@
 import mongoose from 'mongoose';
 import Prospect from '../models/Prospect.js';
-import ProspectList from '../models/ProspectList.js';
+import ProspectList, { OUTREACH_CHANNELS } from '../models/ProspectList.js';
+import Persona from '../models/Persona.js';
+import Playbook from '../models/Playbook.js';
+import Signal from '../models/Signal.js';
 import { buildProspectFilter } from '../utils/buildProspectFilter.js';
 import { queuePipelineRun } from '../services/pipeline/queue.js';
 import { previewSpeakerImport } from '../services/scraper/speakerImportService.js';
-import { normalizePersonas } from '../utils/personas.js';
+import { executeCampaignOutreach } from '../services/campaign/campaignExecutor.js';
 
 const LIST_SUMMARY_PROJECTION = '_id firstName lastName company pipelineStatus compatibilityScore outreachPriority primaryAngle';
 const DEFAULT_PAGE = 1;
@@ -24,6 +27,83 @@ const normalizeFilters = (filters = {}) => ({
   status: filters.status?.trim() || '',
   priority: filters.priority?.trim() || '',
 });
+
+/** Normalize an outreach sequence, renumbering steps and dropping unknown channels. */
+const normalizeSequence = (sequence) => {
+  if (!Array.isArray(sequence)) return null;
+  const steps = sequence
+    .filter((step) => OUTREACH_CHANNELS.includes(step?.channel))
+    .map((step, index) => ({
+      stepOrder: index + 1,
+      channel: step.channel,
+      delayDays: Math.max(0, Number(step?.delayDays) || 0),
+    }));
+  return steps.length ? steps : null;
+};
+
+const STRATEGY_MODELS = { personas: Persona, playbooks: Playbook, signals: Signal };
+
+/**
+ * Validate that selected Personas/Playbooks/Signals exist in this org, and
+ * return the deduped id list. An empty selection is valid and means "use every
+ * active one" downstream.
+ */
+const resolveStrategySelection = async ({ organizationId, field, ids }) => {
+  const uniqueIds = [...new Set((ids || []).map((id) => String(id).trim()).filter(Boolean))];
+  if (uniqueIds.some((id) => !mongoose.isValidObjectId(id))) {
+    return { ok: false, message: `One or more ${field} ids are invalid.` };
+  }
+  if (!uniqueIds.length) return { ok: true, ids: [] };
+
+  const found = await STRATEGY_MODELS[field]
+    .find({ _id: { $in: uniqueIds }, organization: organizationId })
+    .select('_id')
+    .lean();
+
+  if (found.length !== uniqueIds.length) {
+    return { ok: false, message: `One or more selected ${field} were not found in your organization.` };
+  }
+  return { ok: true, ids: uniqueIds };
+};
+
+/** Apply any strategy selections present on the request body to the campaign. */
+const applyStrategySelections = async ({ list, body, organizationId }) => {
+  for (const field of Object.keys(STRATEGY_MODELS)) {
+    if (!Array.isArray(body[field])) continue;
+    const resolved = await resolveStrategySelection({ organizationId, field, ids: body[field] });
+    if (!resolved.ok) return resolved;
+    list[field] = resolved.ids;
+  }
+  return { ok: true };
+};
+
+/** Campaign strategy + outreach summary shared by the list and detail responses. */
+const serializeCampaignConfig = (list) => ({
+  campaignDescription: list.campaignDescription || '',
+  targetEcosystemContext: list.targetEcosystemContext || '',
+  preferredAiModel: list.preferredAiModel || 'gemini',
+  personas: (list.personas || []).map(String),
+  playbooks: (list.playbooks || []).map(String),
+  signals: (list.signals || []).map(String),
+  sequence: (list.sequence || []).map((step) => ({
+    stepOrder: step.stepOrder,
+    channel: step.channel,
+    delayDays: step.delayDays || 0,
+  })),
+});
+
+/** Outreach state without the (potentially large) generated message bodies. */
+const serializeOutreachSummary = (outreach = {}) => {
+  const results = outreach.results || [];
+  return {
+    status: outreach.status || 'idle',
+    playbook: outreach.playbook ? String(outreach.playbook) : null,
+    lastGeneratedAt: outreach.lastGeneratedAt || null,
+    error: outreach.error || null,
+    generatedCount: results.filter((r) => r.status === 'generated').length,
+    skippedCount: results.filter((r) => r.status === 'skipped').length,
+  };
+};
 
 const splitName = (name = '') => {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -216,9 +296,8 @@ export const getProspectLists = async (req, res) => {
           name: list.name,
           type: list.type,
           filters: list.type === 'dynamic' ? normalizeFilters(list.filters) : undefined,
-          campaignDescription: list.campaignDescription || '',
-          targetEcosystemContext: list.targetEcosystemContext || '',
-          targetPersonas: normalizePersonas(list.targetPersonas),
+          ...serializeCampaignConfig(list),
+          outreach: serializeOutreachSummary(list.outreach),
           prospectCount,
           createdAt: list.createdAt,
           updatedAt: list.updatedAt,
@@ -269,9 +348,8 @@ export const getProspectList = async (req, res) => {
         name: list.name,
         type: list.type,
         filters: list.type === 'dynamic' ? normalizeFilters(list.filters) : undefined,
-        campaignDescription: list.campaignDescription || '',
-        targetEcosystemContext: list.targetEcosystemContext || '',
-        targetPersonas: normalizePersonas(list.targetPersonas),
+        ...serializeCampaignConfig(list),
+        outreach: serializeOutreachSummary(list.outreach),
         prospectCount: resolved.total,
         prospects: resolved.prospects,
         createdAt: list.createdAt,
@@ -311,8 +389,23 @@ export const createProspectList = async (req, res) => {
       name: name.trim(),
       type,
       campaignDescription: campaignDescription.trim(),
-      targetPersonas: normalizePersonas(req.body.targetPersonas),
     };
+
+    for (const field of Object.keys(STRATEGY_MODELS)) {
+      if (!Array.isArray(req.body[field])) continue;
+      const resolved = await resolveStrategySelection({
+        organizationId: req.organization._id,
+        field,
+        ids: req.body[field],
+      });
+      if (!resolved.ok) {
+        return res.status(400).json({ success: false, message: resolved.message });
+      }
+      payload[field] = resolved.ids;
+    }
+
+    const sequence = normalizeSequence(req.body.sequence);
+    if (sequence) payload.sequence = sequence;
 
     if (type === 'manual') {
       const validation = await validateProspectIds({
@@ -387,8 +480,25 @@ export const updateProspectList = async (req, res) => {
       list.campaignDescription = req.body.campaignDescription.trim();
     }
 
-    if (Array.isArray(req.body.targetPersonas)) {
-      list.targetPersonas = normalizePersonas(req.body.targetPersonas);
+    if (typeof req.body.targetEcosystemContext === 'string') {
+      list.targetEcosystemContext = req.body.targetEcosystemContext.trim();
+    }
+
+    const strategy = await applyStrategySelections({
+      list,
+      body: req.body,
+      organizationId: req.organization._id,
+    });
+    if (!strategy.ok) {
+      return res.status(400).json({ success: false, message: strategy.message });
+    }
+
+    if (req.body.sequence !== undefined) {
+      const sequence = normalizeSequence(req.body.sequence);
+      if (!sequence) {
+        return res.status(400).json({ success: false, message: 'The outreach sequence needs at least one valid step.' });
+      }
+      list.sequence = sequence;
     }
 
     // Groq is on hold — only 'gemini' is accepted for new writes. Existing lists
@@ -704,6 +814,75 @@ export const importProspectsConfirm = async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message || 'Failed to import prospects.' });
+  }
+};
+
+// GET /api/prospect-lists/:id/outreach
+// Full outreach state for a campaign, including every generated message.
+export const getCampaignOutreach = async (req, res) => {
+  try {
+    const list = await ProspectList.findOne({
+      _id: req.params.id,
+      organization: req.organization._id,
+      isArchived: false,
+    })
+      .select('name sequence playbooks outreach')
+      .populate('outreach.playbook', 'name')
+      .lean();
+
+    if (!list) {
+      return res.status(404).json({ success: false, message: 'Campaign not found.' });
+    }
+
+    const outreach = list.outreach || {};
+    res.json({
+      success: true,
+      data: {
+        _id: list._id,
+        name: list.name,
+        sequence: list.sequence || [],
+        status: outreach.status || 'idle',
+        playbook: outreach.playbook || null,
+        lastGeneratedAt: outreach.lastGeneratedAt || null,
+        error: outreach.error || null,
+        results: outreach.results || [],
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// POST /api/prospect-lists/:id/outreach/generate
+// Kicks off sequence generation in the background. Never analyzes prospects —
+// it only reads analysis the pipeline already stored.
+export const generateCampaignOutreach = async (req, res) => {
+  try {
+    const list = await ProspectList.findOne({
+      _id: req.params.id,
+      organization: req.organization._id,
+      isArchived: false,
+    }).select('_id outreach.status');
+
+    if (!list) {
+      return res.status(404).json({ success: false, message: 'Campaign not found.' });
+    }
+    if (list.outreach?.status === 'generating') {
+      return res.status(400).json({ success: false, message: 'Outreach is already generating for this campaign.' });
+    }
+
+    const { playbookId } = req.body || {};
+    if (playbookId && !mongoose.isValidObjectId(playbookId)) {
+      return res.status(400).json({ success: false, message: 'Invalid playbookId.' });
+    }
+
+    executeCampaignOutreach(list._id, { playbookId }).catch((err) =>
+      console.error(`[campaign] Outreach generation error for ${list._id}:`, err.message)
+    );
+
+    res.json({ success: true, message: 'Outreach generation started.', status: 'generating' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
