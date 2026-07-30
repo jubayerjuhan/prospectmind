@@ -61,7 +61,7 @@ const buildAuthCookies = ({ liAt, jsessionId }) => {
   return cookies;
 };
 
-const saveSession = async (cookies) => {
+export const saveSession = async (cookies) => {
   try {
     await LinkedInSession.findOneAndUpdate(
       {},

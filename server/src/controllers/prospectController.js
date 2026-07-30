@@ -1,4 +1,5 @@
 import Prospect from '../models/Prospect.js';
+import ProspectList from '../models/ProspectList.js';
 import { queuePipelineRun } from '../services/pipeline/queue.js';
 import { sendOutreachEmail } from '../services/resend/emailService.js';
 import { generateOutreachMessages } from '../services/pipeline/outreach.js';
@@ -39,9 +40,35 @@ export const getProspect = async (req, res) => {
     const prospect = await Prospect.findOne({
       _id: req.params.id,
       organization: req.organization._id,
-    });
+    }).lean();
     if (!prospect) return res.status(404).json({ success: false, message: 'Prospect not found.' });
-    res.json({ success: true, data: prospect });
+
+    // The campaign this prospect belongs to, with the Personas it targets — the
+    // detail page charts persona fit against this selection, not every persona
+    // in the org. Same campaign-resolution rule the pipeline uses.
+    const campaign = await ProspectList.findOne({
+      organization: req.organization._id,
+      type: 'manual',
+      isArchived: false,
+      prospects: prospect._id,
+    })
+      .select('name personas')
+      .populate('personas', 'name')
+      .lean();
+
+    res.json({
+      success: true,
+      data: {
+        ...prospect,
+        campaign: campaign
+          ? {
+              _id: campaign._id,
+              name: campaign.name,
+              personas: (campaign.personas || []).map((p) => ({ _id: p._id, name: p.name })),
+            }
+          : null,
+      },
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

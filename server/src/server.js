@@ -2,6 +2,7 @@ import 'dotenv/config';
 import app from './app.js';
 import connectDB from './config/db.js';
 import { startUsageResetCron } from './services/cron/usageReset.js';
+import { attachVncBridge } from './services/scraper/vncBridge.js';
 import './services/pipeline/queue.js';
 import './services/pipeline/githubTalentQueue.js';
 
@@ -14,10 +15,12 @@ const start = async () => {
   startUsageResetCron();
   import('./services/pipeline/queue.js');
 
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`\n🚀 ProspectMind API running on http://localhost:${PORT}`);
     console.log(`   Environment: ${process.env.NODE_ENV || 'development'}\n`);
   });
+
+  attachVncBridge(server);
 };
 
 start();

@@ -11,6 +11,22 @@ const DEFAULT_VERTEX_LOCATION = 'us-central1';
 // output budget silently shrinking the input (the previous 5500-maxTokens formula did).
 const MAX_INPUT_CHARS = 48000;
 
+// Hard ceiling on a single generateContent call. Without this the SDK waits
+// indefinitely: if the socket dies mid-flight (Cloud Run CPU throttling can do
+// this to a background job), the await never settles and the pipeline job hangs
+// at whatever layer it was in — the prospect sits at "enriching" forever with
+// no error and no retry. Enforced twice: httpOptions.timeout asks the SDK to
+// abort, and the race guarantees we move on even if the SDK ignores it.
+const REQUEST_TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS) || 120000;
+
+const withTimeout = (promise, ms, label) => {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+};
+
 // Vertex AI (billed against a GCP project's billing account, e.g. GOOGLE_CLOUD_PROJECT's
 // $-credit balance) when a project is configured; otherwise the AI Studio API key path
 // (GEMINI_API_KEY, billed against that key's separate prepay balance).
@@ -86,11 +102,17 @@ export const askGemini = async ({
            safeUserPrompt = safeUserPrompt.slice(0, MAX_INPUT_CHARS) + '\n...[TRUNCATED BY AI SAFETY NET]';
         }
 
-        const response = await ai.models.generateContent({
-          model: candidateModel,
-          contents: [{ role: 'user', parts: [{ text: safeUserPrompt }] }],
-          config,
-        });
+        config.httpOptions = { ...(config.httpOptions || {}), timeout: REQUEST_TIMEOUT_MS };
+
+        const response = await withTimeout(
+          ai.models.generateContent({
+            model: candidateModel,
+            contents: [{ role: 'user', parts: [{ text: safeUserPrompt }] }],
+            config,
+          }),
+          REQUEST_TIMEOUT_MS,
+          `[gemini] ${candidateModel}`
+        );
 
         return parseGroqResponse(response.text);
 

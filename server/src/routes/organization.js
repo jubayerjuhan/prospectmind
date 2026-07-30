@@ -3,6 +3,7 @@ import { protect, requireRole } from '../middleware/auth.js';
 import Organization from '../models/Organization.js';
 import LinkedInSession from '../models/LinkedInSession.js';
 import { refreshLinkedInSessionFromCookie } from '../services/scraper/linkedinScraper.js';
+import * as linkedinLiveLogin from '../services/scraper/linkedinLiveLogin.js';
 
 const router = Router();
 router.use(protect);
@@ -82,6 +83,38 @@ router.post('/linkedin-session', requireRole('owner', 'admin'), async (req, res)
       return res.status(400).json({ success: false, message: result.message || 'That cookie did not authenticate.' });
     }
     res.json({ success: true, message: 'LinkedIn session refreshed and verified.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ── Live LinkedIn Login (streamed, headless-server-safe interactive login) ──
+// Starts a real, visible Chrome inside the production container (see
+// linkedinLiveLogin.js) that an owner/admin drives remotely over VNC,
+// streamed into the Settings page via vncBridge.js. Use this when the
+// cookie-paste flow above can't help — e.g. LinkedIn threw a checkpoint/
+// captcha that only an interactive session can clear.
+
+// POST /api/organization/linkedin-session/live — start (idempotent)
+router.post('/linkedin-session/live', requireRole('owner', 'admin'), async (req, res) => {
+  try {
+    const status = await linkedinLiveLogin.start();
+    res.json({ success: true, data: status });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// GET /api/organization/linkedin-session/live — status poll
+router.get('/linkedin-session/live', requireRole('owner', 'admin'), (req, res) => {
+  res.json({ success: true, data: linkedinLiveLogin.getStatus() });
+});
+
+// DELETE /api/organization/linkedin-session/live — cancel/stop
+router.delete('/linkedin-session/live', requireRole('owner', 'admin'), async (req, res) => {
+  try {
+    const status = await linkedinLiveLogin.stop();
+    res.json({ success: true, data: status });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

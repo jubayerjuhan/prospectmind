@@ -1,0 +1,33 @@
+# Cloud Build source upload — same as .gitignore, except we explicitly need
+# .env.production.local in the tarball: Vite reads it at build time to bake
+# VITE_API_URL into the bundle, and it never gets committed to git.
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.vercel
+.env*
+
+# Un-ignore the one file the production build actually needs.
+!.env.production.local

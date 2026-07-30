@@ -6,6 +6,8 @@
  */
 
 const GROQ_API_BASE_URL = 'https://api.groq.com/openai/v1';
+// Hard ceiling on a single request — Node's fetch() never times out on its own.
+const REQUEST_TIMEOUT_MS = Number(process.env.GROQ_TIMEOUT_MS) || 120000;
 const DEFAULT_GROQ_MODEL = 'llama-3.3-70b-versatile';
 const DEFAULT_GROQ_FALLBACK_MODELS = [
   'llama-3.3-70b-versatile',
@@ -182,6 +184,8 @@ export const askGroq = async ({
       };
 
       try {
+        // No default fetch timeout — see the same guard in geminiClient.js. A
+        // hung request here would stall a pipeline job indefinitely.
         const response = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
           method: 'POST',
           headers: {
@@ -189,6 +193,7 @@ export const askGroq = async ({
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(body),
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         });
 
         const payload = await response.json().catch(() => null);

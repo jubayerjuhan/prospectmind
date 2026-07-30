@@ -10,17 +10,24 @@ const ALERT_DEBOUNCE_MS = 6 * 60 * 60 * 1000; // 6 hours
  * Notify the organization's owner that the shared LinkedIn session is dead
  * and automatic recovery couldn't fix it. Safe to call on every auth failure —
  * debounces itself via LinkedInSession.lastAlertSentAt.
+ *
+ * Returns whether an alert was actually sent (false when debounced) — callers
+ * use this to piggyback other "session just died" reactions (e.g. starting
+ * the Live Login browser so it's already up by the time the owner reads the
+ * email) on the same 6h window, instead of re-triggering on every failed
+ * prospect in a batch.
  */
 export const notifyLinkedInSessionDead = async (organizationId) => {
   const session = await LinkedInSession.findOne({});
   const recentlyAlerted =
     session?.lastAlertSentAt && Date.now() - session.lastAlertSentAt.getTime() < ALERT_DEBOUNCE_MS;
-  if (recentlyAlerted) return;
+  if (recentlyAlerted) return false;
 
   const org = await Organization.findById(organizationId).populate('owner', 'name email');
-  if (!org?.owner?.email) return;
+  if (!org?.owner?.email) return false;
 
   await sendLinkedInSessionExpiredEmail({ name: org.owner.name || 'there', email: org.owner.email });
   await LinkedInSession.findOneAndUpdate({}, { lastAlertSentAt: new Date() }, { upsert: true });
   console.log(`[linkedin] 📧 Session-expired alert sent to ${org.owner.email}`);
+  return true;
 };

@@ -1,12 +1,23 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
-import { Save, Settings, Shield, Zap, Loader2, KeyRound, RefreshCw, ChevronDown } from 'lucide-react';
+import { Save, Settings, Shield, Zap, Loader2, KeyRound, RefreshCw, ChevronDown, Monitor, X } from 'lucide-react';
+import RFB from '@novnc/novnc';
 import { useAuthStore } from '../stores/authStore';
 import PersonasSettings from '../components/settings/PersonasSettings';
 import PlaybooksSettings from '../components/settings/PlaybooksSettings';
 import SignalsSettings from '../components/settings/SignalsSettings';
+
+// Live Login streams a real browser over VNC-over-WebSocket, bridged by
+// server/src/services/scraper/vncBridge.js at the same path/origin as the
+// REST API — just swap the scheme and hand the JWT as a query param, since a
+// browser WebSocket can't set an Authorization header.
+const buildVncUrl = (token) => {
+  const httpBase = api.defaults.baseURL || 'http://localhost:5001/api';
+  const wsBase = httpBase.replace(/^http/i, 'ws');
+  return `${wsBase}/organization/linkedin-session/live/vnc?token=${encodeURIComponent(token)}`;
+};
 
 export default function SettingsPage() {
   const queryClient = useQueryClient();
@@ -41,6 +52,64 @@ export default function SettingsPage() {
       toast.error(err.response?.data?.message || 'Failed to refresh LinkedIn session.');
     },
   });
+
+  // Live Login — streamed interactive browser (see buildVncUrl above)
+  const [liveLoginOpen, setLiveLoginOpen] = useState(false);
+  const liveCanvasRef = useRef(null);
+  const rfbRef = useRef(null);
+
+  const closeLivePanel = () => {
+    rfbRef.current?.disconnect();
+    rfbRef.current = null;
+    setLiveLoginOpen(false);
+  };
+
+  const startLiveMutation = useMutation({
+    mutationFn: () => api.post('/organization/linkedin-session/live'),
+    onSuccess: () => setLiveLoginOpen(true),
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to start live login.'),
+  });
+
+  const stopLiveMutation = useMutation({
+    mutationFn: () => api.delete('/organization/linkedin-session/live'),
+    onSuccess: () => closeLivePanel(),
+  });
+
+  const liveStatusQuery = useQuery({
+    queryKey: ['organization', 'linkedin-session', 'live'],
+    queryFn: () => api.get('/organization/linkedin-session/live').then((r) => r.data.data),
+    enabled: liveLoginOpen,
+    refetchInterval: liveLoginOpen ? 3000 : false,
+  });
+
+  // React to status changes coming back from the poll above
+  useEffect(() => {
+    const status = liveStatusQuery.data?.status;
+    if (!liveLoginOpen || !status) return;
+    if (status === 'success') {
+      toast.success('LinkedIn session refreshed and verified.');
+      queryClient.invalidateQueries(['organization', 'linkedin-session']);
+      closeLivePanel();
+    } else if (status === 'timeout' || status === 'failed') {
+      toast.error(status === 'timeout' ? 'Live login timed out.' : 'Live login failed.');
+      closeLivePanel();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveStatusQuery.data?.status, liveLoginOpen]);
+
+  // Mount the RFB (VNC) client onto the canvas div once the panel is open
+  useEffect(() => {
+    if (!liveLoginOpen || !liveCanvasRef.current || rfbRef.current) return;
+    const token = useAuthStore.getState().accessToken;
+    const rfb = new RFB(liveCanvasRef.current, buildVncUrl(token));
+    rfb.scaleViewport = true;
+    rfb.resizeSession = false;
+    rfbRef.current = rfb;
+    return () => {
+      rfb.disconnect();
+      if (rfbRef.current === rfb) rfbRef.current = null;
+    };
+  }, [liveLoginOpen]);
 
   // Fetch organization settings
   const { data: orgData, isLoading } = useQuery({
@@ -267,6 +336,59 @@ export default function SettingsPage() {
                 )}
                 Refresh Session
               </button>
+            </div>
+
+            {/* Live Login — for checkpoints/captchas the cookie paste above can't clear */}
+            <div className="border-t border-slate-800 pt-4 space-y-3">
+              <div>
+                <p className="text-white text-sm font-medium flex items-center gap-2">
+                  <Monitor size={15} className="text-indigo-400" />
+                  Live Login
+                </p>
+                <p className="text-slate-500 text-xs mt-0.5">
+                  Opens a real Chrome window running on the server that you drive remotely, right here, until it
+                  reaches your feed — use this when LinkedIn throws a checkpoint or captcha the cookie above can't
+                  get past.
+                </p>
+              </div>
+
+              {!liveLoginOpen ? (
+                <button
+                  type="button"
+                  disabled={startLiveMutation.isPending}
+                  onClick={() => startLiveMutation.mutate()}
+                  className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 disabled:opacity-40 text-slate-200 font-medium rounded-lg text-sm transition"
+                >
+                  {startLiveMutation.isPending ? (
+                    <Loader2 size={15} className="animate-spin" />
+                  ) : (
+                    <Monitor size={15} />
+                  )}
+                  Open Live Browser
+                </button>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400 text-xs">
+                      {liveStatusQuery.data?.status === 'running'
+                        ? 'Waiting for you to log in…'
+                        : 'Starting…'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => stopLiveMutation.mutate()}
+                      disabled={stopLiveMutation.isPending}
+                      className="flex items-center gap-1 text-slate-500 hover:text-red-400 text-xs transition"
+                    >
+                      <X size={13} /> Cancel
+                    </button>
+                  </div>
+                  <div
+                    ref={liveCanvasRef}
+                    className="w-full aspect-[1280/920] bg-black rounded-lg border border-slate-700 overflow-hidden"
+                  />
+                </div>
+              )}
             </div>
           </div>
         )}

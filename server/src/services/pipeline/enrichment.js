@@ -14,6 +14,7 @@ import { scrapePage } from '../scraper/pageScraper.js';
 import { clipPromptText } from './profileSnapshot.js';
 import { LinkedInAuthError } from '../../utils/pipelineErrors.js';
 import { notifyLinkedInSessionDead } from '../scraper/linkedinSessionAlert.js';
+import * as linkedinLiveLogin from '../scraper/linkedinLiveLogin.js';
 
 const SYSTEM_PROMPT = `You are an expert B2B prospect research analyst.
 You are given real scraped data about ONE confirmed person, tied to a specific LinkedIn profile URL.
@@ -97,6 +98,8 @@ const summarizeSnippets = (snippets = [], formatter) =>
 
 // ─── GitHub API ───────────────────────────────────────────────────────────────
 
+const GITHUB_TIMEOUT_MS = 15000;
+
 const fetchGitHubData = async (githubUrl) => {
   if (!githubUrl) return null;
 
@@ -106,9 +109,12 @@ const fetchGitHubData = async (githubUrl) => {
       ? { Authorization: `token ${process.env.GITHUB_TOKEN}` }
       : {};
 
+    // Node's fetch() has NO default timeout — a severed socket (which Cloud Run
+    // CPU throttling can cause mid-flight) would otherwise leave this await
+    // pending forever, wedging the whole pipeline job at "enriching".
     const [userRes, reposRes] = await Promise.all([
-      fetch(`https://api.github.com/users/${username}`, { headers }),
-      fetch(`https://api.github.com/users/${username}/repos?sort=updated&per_page=30`, { headers }),
+      fetch(`https://api.github.com/users/${username}`, { headers, signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS) }),
+      fetch(`https://api.github.com/users/${username}/repos?sort=updated&per_page=30`, { headers, signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS) }),
     ]);
 
     if (!userRes.ok) return null;
@@ -261,9 +267,19 @@ export const enrichProfile = async (prospect, discoveredIdentity, { callAI = ask
       + 'and the automatic browser-window recovery either timed out, was disabled, or could not run in this '
       + 'environment. In the server folder run "npm run linkedin:login", complete the LinkedIn challenge in the '
       + 'browser window, then re-run this prospect.';
-    await notifyLinkedInSessionDead(prospect.organization).catch((e) =>
-      console.warn('[enrichment] Failed to send LinkedIn session alert:', e.message)
-    );
+    const alertSent = await notifyLinkedInSessionDead(prospect.organization).catch((e) => {
+      console.warn('[enrichment] Failed to send LinkedIn session alert:', e.message);
+      return false;
+    });
+    // Piggyback on the alert's own 6h debounce rather than a separate one —
+    // by the time the owner opens the email, the live-viewable browser is
+    // already sitting at the LinkedIn login page waiting for them. Fire and
+    // forget: this must not block/slow down reporting the enrichment failure.
+    if (alertSent) {
+      linkedinLiveLogin.start().catch((e) =>
+        console.warn('[enrichment] Failed to auto-start Live Login:', e.message)
+      );
+    }
     throw new LinkedInAuthError(message, { checkpoint: isCheckpoint });
   }
 

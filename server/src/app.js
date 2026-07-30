@@ -6,6 +6,11 @@ import rateLimit from 'express-rate-limit';
 import routes from './routes/index.js';
 
 const app = express();
+
+// Behind Cloud Run's load balancer, requests arrive via X-Forwarded-For; trust
+// exactly one hop so express-rate-limit reads the real client IP instead of
+// warning/misattributing every request to the proxy.
+app.set('trust proxy', 1);
 const allowedOrigins = (process.env.CLIENT_URLS || process.env.CLIENT_URL || 'http://localhost:5173')
   .split(',')
   .map((origin) => origin.trim())

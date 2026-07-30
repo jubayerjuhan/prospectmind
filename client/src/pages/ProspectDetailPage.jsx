@@ -9,6 +9,7 @@ import {
   AlertTriangle, Target, Zap, Star, Sparkles, Pause, Play, FileText
 } from 'lucide-react';
 import EditProspectModal from '../components/prospects/EditProspectModal';
+import PersonaRadar from '../components/prospects/PersonaRadar';
 import MicButton from '../components/ui/MicButton';
 
 const ACTIVE_PIPELINE_STATUSES = ['pending', 'discovering', 'enriching', 'classifying', 'scoring', 'generating'];
@@ -264,6 +265,30 @@ export default function ProspectDetailPage() {
     ...(ep.experience?.flatMap(ex => ex.skills || []) || [])
   ]);
   const uniqueSkills = Array.from(allSkillsSet).filter(Boolean);
+
+  // Radar axes = the Personas this prospect's campaign targets, joined with the
+  // prospect's stored score for each. A selected-but-unscored persona still gets
+  // an axis so the gap is visible. With no campaign selection, fall back to
+  // whatever personas were scored.
+  const scoreByPersona = new Map(
+    (p.personaScores || []).map((s) => [String(s.persona), s])
+  );
+  const campaignPersonas = p.campaign?.personas?.length
+    ? p.campaign.personas.map((persona) => {
+        const stored = scoreByPersona.get(String(persona._id));
+        return {
+          _id: persona._id,
+          name: persona.name,
+          score: stored?.score,
+          reasoning: stored?.reasoning,
+        };
+      })
+    : (p.personaScores || []).map((s, i) => ({
+        _id: s.persona || `score-${i}`,
+        name: s.personaName || 'Persona',
+        score: s.score,
+        reasoning: s.reasoning,
+      }));
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -608,8 +633,14 @@ export default function ProspectDetailPage() {
                 <Star size={16} className="text-indigo-400" /> Persona Scores
               </h3>
               <p className="text-slate-500 text-xs mb-4">
-                Scored against your active <span className="text-slate-400">Settings → Personas</span> using each persona's prompt.
+                Scored against the <span className="text-slate-400">Personas selected for this campaign</span>, using
+                each persona's prompt.
               </p>
+
+              <div className="mb-4">
+                <PersonaRadar personas={campaignPersonas} campaignName={p.campaign?.name} />
+              </div>
+
               <div className="space-y-3">
                 {p.personaScores.map((ps, idx) => (
                   <div

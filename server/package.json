@@ -39,7 +39,8 @@
     "puppeteer": "^25.1.0",
     "resend": "^6.12.4",
     "stripe": "^22.1.1",
-    "uuid": "^14.0.0"
+    "uuid": "^14.0.0",
+    "ws": "^8.21.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"
