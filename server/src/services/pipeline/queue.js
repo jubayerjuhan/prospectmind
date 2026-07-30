@@ -14,9 +14,32 @@ const connection = new Redis(redisUrl, {
 // Create the queue
 export const pipelineQueue = new Queue('pipelineQueue', { connection });
 
+// An idle BullMQ worker still costs Redis commands: one blocking BZPOPMIN per
+// `drainDelay`, plus a stalled-job sweep per `stalledInterval`. On a per-request
+// billed Redis (Upstash) with Cloud Run holding an instance warm 24/7, the
+// defaults (5s / 30s) burn ~500 commands/hour per worker and exhaust the plan
+// quota on their own. These values cut that ~7x. They do not delay job pickup:
+// queue.add() sets the marker key, which wakes the blocked worker immediately.
+// BullMQ throws if either value is not a positive number, so a malformed env
+// var must fall back rather than take the server down at boot.
+const positiveEnv = (name, fallback) => {
+  const parsed = Number(process.env[name]);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+export const IDLE_POLL_OPTS = {
+  drainDelay: positiveEnv('BULLMQ_DRAIN_DELAY', 60),              // seconds
+  stalledInterval: positiveEnv('BULLMQ_STALLED_INTERVAL', 300000), // ms
+};
+
+// Workers are gated so that only the instance meant to process jobs polls Redis.
+// Cloud Run scales the API to maxScale 3, and without this every instance runs
+// its own pair of pollers, multiplying the Redis spend by the replica count.
+export const runWorkers = process.env.RUN_WORKERS !== 'false';
+
 // Define the worker that processes pipeline jobs
 // Concurrency is set to 1 to run one job at a time and avoid AI rate limits
-export const pipelineWorker = new Worker('pipelineQueue', async (job) => {
+export const pipelineWorker = !runWorkers ? null : new Worker('pipelineQueue', async (job) => {
     const { prospectId } = job.data;
     try {
         await runPipeline(prospectId);
@@ -32,10 +55,11 @@ export const pipelineWorker = new Worker('pipelineQueue', async (job) => {
     }
 }, {
     connection,
-    concurrency: 1 
+    concurrency: 1,
+    ...IDLE_POLL_OPTS,
 });
 
-pipelineWorker.on('failed', (job, err) => {
+pipelineWorker?.on('failed', (job, err) => {
     console.error(`Pipeline Job ${job?.id} failed:`, err.message);
 });
 

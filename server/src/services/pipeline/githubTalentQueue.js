@@ -6,7 +6,7 @@ import GithubTalentCampaign from '../../models/GithubTalentCampaign.js';
 import Prospect from '../../models/Prospect.js';
 import ProspectList from '../../models/ProspectList.js';
 import Organization from '../../models/Organization.js';
-import { queuePipelineRun } from './queue.js';
+import { queuePipelineRun, IDLE_POLL_OPTS, runWorkers } from './queue.js';
 import { searchRepositories, fetchContributors, fetchUserProfile, buildProspectData } from '../scraper/githubTalentScraper.js';
 
 // Initialize Redis connection for BullMQ
@@ -168,15 +168,17 @@ const processGithubTalentCampaign = async (campaignId) => {
   }
 };
 
-export const githubTalentWorker = new Worker('githubTalentQueue', async (job) => {
+// Gated and throttled for the same reason as pipelineWorker — see queue.js.
+export const githubTalentWorker = !runWorkers ? null : new Worker('githubTalentQueue', async (job) => {
     const { campaignId } = job.data;
     await processGithubTalentCampaign(campaignId);
 }, {
     connection,
-    concurrency: 1 
+    concurrency: 1,
+    ...IDLE_POLL_OPTS,
 });
 
-githubTalentWorker.on('failed', (job, err) => {
+githubTalentWorker?.on('failed', (job, err) => {
     console.error(`GithubTalentQueue Job ${job?.id} failed:`, err.message);
 });
 
