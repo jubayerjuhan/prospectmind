@@ -290,6 +290,30 @@ export default function ProspectDetailPage() {
         reasoning: s.reasoning,
       }));
 
+  // The two persona blocks are mutually exclusive. A prospect inside a campaign
+  // is scored against that campaign's first-class Personas, so it gets "Persona
+  // Scores". A prospect outside every campaign only has the AI-inferred role
+  // classification, so it gets "Personas". The campaign case falls back to
+  // "Personas" when the campaign has nothing to score against at all.
+  const inCampaign = Boolean(p.campaign);
+  const hasPersonaScores = Array.isArray(p.personaScores) && p.personaScores.length > 0;
+  const showPersonaScores = inCampaign && (hasPersonaScores || campaignPersonas.length > 0);
+  const showPersonas = !showPersonaScores && p.roleClassification?.length > 0;
+
+  // Rendered inside whichever of the two blocks is showing.
+  const campaignFitBlock = p.compatibilityScore != null && (
+    <div className="mb-4">
+      <p className="text-slate-500 text-[11px] font-semibold uppercase tracking-wider mb-2 flex items-center gap-1.5">
+        <Target size={12} className="text-indigo-400" /> Campaign Fit
+      </p>
+      <CampaignFitGauge
+        score={p.compatibilityScore}
+        label={p.scoreLabel}
+        priority={p.outreachPriority}
+      />
+    </div>
+  );
+
   return (
     <div className="max-w-4xl mx-auto space-y-6">
 
@@ -559,8 +583,8 @@ export default function ProspectDetailPage() {
             )}
           </div>
 
-          {/* Personas */}
-          {p.roleClassification?.length > 0 && (
+          {/* Personas — AI-inferred, shown only when this prospect is in no campaign */}
+          {showPersonas && (
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
               <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
                 <Sparkles size={16} className="text-indigo-400" /> Personas
@@ -570,18 +594,7 @@ export default function ProspectDetailPage() {
               </div>
 
               {/* Visual campaign-fit gauge */}
-              {p.compatibilityScore != null && (
-                <div className="mb-4">
-                  <p className="text-slate-500 text-[11px] font-semibold uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <Target size={12} className="text-indigo-400" /> Campaign Fit
-                  </p>
-                  <CampaignFitGauge
-                    score={p.compatibilityScore}
-                    label={p.scoreLabel}
-                    priority={p.outreachPriority}
-                  />
-                </div>
-              )}
+              {campaignFitBlock}
 
               {Array.isArray(p.personaBreakdown) && p.personaBreakdown.length > 0 ? (
                 <div className="space-y-3">
@@ -626,8 +639,9 @@ export default function ProspectDetailPage() {
             </div>
           )}
 
-          {/* Persona Scores — first-class, prompt-driven (v2 Phase C) */}
-          {Array.isArray(p.personaScores) && p.personaScores.length > 0 && (
+          {/* Persona Scores — first-class, prompt-driven (v2 Phase C).
+              Shown only when this prospect belongs to a campaign. */}
+          {showPersonaScores && (
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
               <h3 className="text-white font-semibold mb-1 flex items-center gap-2">
                 <Star size={16} className="text-indigo-400" /> Persona Scores
@@ -637,12 +651,20 @@ export default function ProspectDetailPage() {
                 each persona's prompt.
               </p>
 
+              {campaignFitBlock}
+
               <div className="mb-4">
                 <PersonaRadar personas={campaignPersonas} campaignName={p.campaign?.name} />
               </div>
 
+              {!hasPersonaScores && (
+                <p className="text-slate-500 text-sm">
+                  Not scored against these Personas yet — run the pipeline for this prospect.
+                </p>
+              )}
+
               <div className="space-y-3">
-                {p.personaScores.map((ps, idx) => (
+                {(p.personaScores || []).map((ps, idx) => (
                   <div
                     key={`${ps.persona || ps.personaName || 'persona'}-${idx}`}
                     className="rounded-lg border border-slate-800 bg-slate-950/40 p-3"
