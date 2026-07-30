@@ -287,7 +287,14 @@ const loginToLinkedIn = async (page) => {
     return { ok: false, reason: 'checkpoint' };
   }
 
-  if (url.includes('feed') || url.includes('mynetwork') || !url.includes('login')) {
+  // Success must be proven, not inferred from the absence of "login" in the
+  // URL. A navigation that fails outright (proxy down, DNS, connection reset)
+  // leaves the page on chrome-error://chromewebdata/, which contains neither
+  // "login" nor "feed" — the old `!url.includes('login')` test read that as a
+  // successful login and handed saveSession() a logged-out cookie jar, marking
+  // the shared session 'active' with a fresh lastVerifiedAt. The Settings page
+  // then showed "Active" while every scrape failed to authenticate.
+  if (await verifyLoggedIn(page)) {
     console.log('[linkedin] ✅ Login successful');
     // Save session cookies
     const cookies = await page.cookies();
@@ -295,7 +302,7 @@ const loginToLinkedIn = async (page) => {
     return { ok: true, reason: 'ok' };
   }
 
-  console.warn('[linkedin] Login may have failed — URL:', url);
+  console.warn('[linkedin] Login may have failed — post-login URL:', url);
   return { ok: false, reason: 'failed' };
 };
 

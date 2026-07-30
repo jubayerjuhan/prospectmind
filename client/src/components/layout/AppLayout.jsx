@@ -1,6 +1,7 @@
 import { Outlet, Navigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
 import Sidebar from './Sidebar';
+import LinkedInSessionBanner from './LinkedInSessionBanner';
 
 export default function AppLayout() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -11,6 +12,7 @@ export default function AppLayout() {
       <Sidebar />
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-6xl mx-auto px-8 py-8">
+          <LinkedInSessionBanner />
           <Outlet />
         </div>
       </main>
