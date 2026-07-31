@@ -23,6 +23,18 @@ const compact = (s = '') => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
 const linkedinSlugOf = (url = '') => (String(url).match(/\/in\/([^/?]+)/i)?.[1] || '').toLowerCase();
 
 /**
+ * The name to display for a prospect's employer.
+ *
+ * `prospect.company` is free text an importer or a human supplied, and it is
+ * routinely blank — a LinkedIn-sourced prospect often has none. The current
+ * role in the enriched experience is the next best label, and unlike the
+ * headline it is the company alone rather than a marketing sentence.
+ */
+export const companyDisplayName = (prospect = {}) =>
+  String(prospect.company || '').trim() ||
+  String(prospect.enrichedProfile?.experience?.[0]?.company || '').trim();
+
+/**
  * A personal site is as often a portfolio as an employer's domain, so it only
  * counts when the domain visibly agrees with the company name. Without this
  * check the weakest evidence source would reintroduce the very ambiguity the
@@ -88,7 +100,7 @@ export const deriveCompanyIdentity = (prospect = {}) => {
 
   // 4. The website on the contact panel — only when it agrees with the name.
   const site = normalizeDomainKey(ep.website || '');
-  if (site && !isPersonalNameDomain(site, person) && websiteAgreesWithName(site, prospect.company || '')) {
+  if (site && !isPersonalNameDomain(site, person) && websiteAgreesWithName(site, companyDisplayName(prospect))) {
     return { keyField: 'domainKey', key: site, facts: { domain: site }, source: 'contact-website', confidence: 'medium' };
   }
 
@@ -106,9 +118,8 @@ export const deriveCompanyIdentity = (prospect = {}) => {
  */
 export const resolveCompanyForProspect = async ({ prospect, organization, dryRun = false } = {}) => {
   const org = organization || prospect?.organization;
-  const name = String(prospect?.company || '').trim();
   const nil = { company: null, action: 'no-company', evidence: { source: 'none', value: '', confidence: 'none' }, needsReview: false, reviewReason: '' };
-  if (!org || !name) return nil;
+  if (!org) return nil;
 
   // A human already said which company this is. Never second-guess it.
   if (prospect.companyLinkSource === 'manual' && prospect.companyRef) {
@@ -119,7 +130,15 @@ export const resolveCompanyForProspect = async ({ prospect, organization, dryRun
   }
 
   const identity = deriveCompanyIdentity(prospect);
-  const nameKey = normalizeCompanyName(name);
+  const name = companyDisplayName(prospect);
+
+  // The free-text name is a LABEL now, not the identity — a LinkedIn company
+  // page identifies the employer on its own. Requiring a name here stranded
+  // every prospect whose company field was blank even when their profile told
+  // us exactly where they work.
+  if (!identity.keyField && !name) return nil;
+
+  const nameKey = name ? normalizeCompanyName(name) : '';
 
   // ── A verified key: match, promote a placeholder, or split off a new record.
   if (identity.keyField && identity.key) {
@@ -199,8 +218,10 @@ export const ensureCompanyLink = async (prospectOrId) => {
   const prospect = typeof prospectOrId === 'object' && prospectOrId?._id
     ? prospectOrId
     : await Prospect.findById(prospectOrId);
-  if (!prospect?.company?.trim()) return null;
+  if (!prospect) return null;
   if (prospect.companyLinkSource === 'manual') return null;
+  // No early name check: the resolver decides, and a LinkedIn company page is
+  // enough to identify an employer with no name on record.
 
   try {
     const res = await resolveCompanyForProspect({ prospect, organization: prospect.organization });
