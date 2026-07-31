@@ -13,6 +13,10 @@ const enrichedProfileSchema = new mongoose.Schema(
 
     // Confidence
     identityConfidenceScore: { type: Number, min: 0, max: 100 },
+    // Why that score. discovery.js has always set this, but without a schema
+    // entry Mongoose dropped it on save, so every explanation was computed and
+    // then discarded — leaving a bare number with nothing behind it.
+    confidenceReasoning: String,
 
     // Technical (for talents)
     programmingLanguages: [String],
