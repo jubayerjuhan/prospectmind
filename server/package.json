@@ -12,6 +12,7 @@
     "db:seed-settings": "node scripts/seed-default-settings.js",
     "db:backfill-company-refs": "node scripts/backfill-company-refs.js",
     "db:reresolve-companies": "node scripts/reresolve-companies.js",
+    "test:company-identity": "node scripts/test-company-identity.mjs",
     "linkedin:login": "node scripts/linkedin-login.mjs",
     "linkedin:cookie": "node scripts/linkedin-cookie.mjs"
   },
