@@ -45,10 +45,24 @@ const normalizeSocialUrl = (candidate, baseUrl) => {
 
 const emptySocials = () => ({
   linkedinUrl: '',
+  companyLinkedinUrl: '',
   xUrl: '',
   githubUrl: '',
   telegramHandle: '',
 });
+
+// A speaker card links to both the person and their employer. Matching on a
+// bare "linkedin.com" put whichever came first — often the company page, a
+// /school/ page or a /posts/ permalink — into the PERSON's profile URL, which
+// then anchored identity resolution to the wrong entity entirely. Route each
+// LinkedIn URL by its path instead: /in/ is the person, /company/ is tier-one
+// evidence for which company they actually work at.
+const assignLinkedinHref = (socials, href) => {
+  if (!socials.linkedinUrl && /linkedin\.com\/in\//i.test(href)) socials.linkedinUrl = href;
+  if (!socials.companyLinkedinUrl && /linkedin\.com\/(?:company|showcase)\//i.test(href)) {
+    socials.companyLinkedinUrl = href;
+  }
+};
 
 const mergeSocialProfiles = (profiles = [], baseUrl, currentSocials = emptySocials()) => {
   const socials = { ...emptySocials(), ...currentSocials };
@@ -57,7 +71,7 @@ const mergeSocialProfiles = (profiles = [], baseUrl, currentSocials = emptySocia
     .map((profile) => normalizeSocialUrl(profile, baseUrl))
     .filter(Boolean)
     .forEach((href) => {
-      if (!socials.linkedinUrl && href.includes('linkedin.com')) socials.linkedinUrl = href;
+      assignLinkedinHref(socials, href);
       if (!socials.xUrl && (href.includes('x.com') || href.includes('twitter.com'))) socials.xUrl = href;
       if (!socials.githubUrl && href.includes('github.com')) socials.githubUrl = href;
       if (!socials.telegramHandle && href.includes('t.me/')) socials.telegramHandle = href;
@@ -111,7 +125,7 @@ const extractSocials = (html, baseUrl, speakerName) => {
   const socials = emptySocials();
 
   hrefMatches.forEach((href) => {
-    if (!socials.linkedinUrl && href.includes('linkedin.com')) socials.linkedinUrl = href;
+    assignLinkedinHref(socials, href);
     if (!socials.xUrl && (href.includes('x.com') || href.includes('twitter.com'))) socials.xUrl = href;
     if (!socials.githubUrl && href.includes('github.com')) socials.githubUrl = href;
     if (!socials.telegramHandle && href.includes('t.me/')) socials.telegramHandle = href;

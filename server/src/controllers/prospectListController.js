@@ -6,6 +6,7 @@ import Playbook from '../models/Playbook.js';
 import Signal from '../models/Signal.js';
 import { buildProspectFilter } from '../utils/buildProspectFilter.js';
 import { queuePipelineRun } from '../services/pipeline/queue.js';
+import { ensureCompanyLink } from '../services/company/companyResolver.js';
 import { previewSpeakerImport } from '../services/scraper/speakerImportService.js';
 import { executeCampaignOutreach } from '../services/campaign/campaignExecutor.js';
 
@@ -123,6 +124,7 @@ const normalizeImportedCandidate = (candidate = {}) => ({
   sourceUrl: candidate.sourceUrl?.trim() || '',
   socials: {
     linkedinUrl: candidate.socials?.linkedinUrl?.trim() || '',
+    companyLinkedinUrl: candidate.socials?.companyLinkedinUrl?.trim() || '',
     xUrl: candidate.socials?.xUrl?.trim() || '',
     githubUrl: candidate.socials?.githubUrl?.trim() || '',
     telegramHandle: candidate.socials?.telegramHandle?.trim() || '',
@@ -624,6 +626,11 @@ export const addAndCreateProspect = async (req, res) => {
     list.prospects = dedupeProspectIds([...list.prospects.map((id) => id.toString()), prospect._id.toString()]);
     await list.save();
 
+    // Link a company regardless of whether the pipeline runs — this branch is
+    // skipped below when the campaign has no description, and the pipeline used
+    // to be the only place a companyRef was ever set.
+    await ensureCompanyLink(prospect);
+
     // Only queue pipeline if campaign settings are present
     let pipelineQueued = false;
     if (hasCampaignSettings) {
@@ -776,6 +783,7 @@ export const importProspectsConfirm = async (req, res) => {
         company: candidate.company,
         typeHint: 'unknown',
         rawLinkedin: candidate.socials.linkedinUrl,
+        rawCompanyLinkedin: candidate.socials.companyLinkedinUrl,
         rawX: candidate.socials.xUrl,
         rawTelegram: candidate.socials.telegramHandle,
         rawGithub: candidate.socials.githubUrl,
@@ -797,6 +805,13 @@ export const importProspectsConfirm = async (req, res) => {
         ...created.map((prospect) => prospect._id.toString()),
       ]);
       await list.save();
+
+      // Imported speakers carry a company LinkedIn URL when the source page
+      // linked one — resolve it now so the Companies view is correct even
+      // before the pipeline gets to them.
+      for (const prospect of created) {
+        await ensureCompanyLink(prospect).catch(() => null);
+      }
 
       created.forEach((prospect) =>
         queuePipelineRun(prospect._id).catch((err) => console.error(`Queue error for ${prospect._id}:`, err.message))

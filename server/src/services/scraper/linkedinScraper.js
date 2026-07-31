@@ -479,6 +479,32 @@ const scrapePageText = async (page, url) => {
   });
 };
 
+// Exposed so other LinkedIn scrapers (e.g. company pages) reuse the same
+// authwall detection, lazy-load scrolling and text cleanup.
+export const scrapeLinkedInPageText = scrapePageText;
+
+// ─── Employer links ───────────────────────────────────────────────────────────
+// Every role on the experience page links to the employer's own LinkedIn page.
+// That href is an EXACT company id — the one piece of evidence that separates
+// two unrelated companies sharing a name — and scrapePageText discards it,
+// since it returns innerText only. Read it straight off the DOM instead.
+//
+// Scoped to <main> because the "People also viewed" and ads rails carry company
+// links for entirely unrelated companies. DOM order is reverse-chronological,
+// so entry 0 is the current employer.
+const extractCompanyLinks = async (page) => {
+  try {
+    return await page.evaluate(() =>
+      [...document.querySelectorAll('main a[href*="/company/"]')]
+        .map((a) => a.getAttribute('href'))
+        .filter(Boolean)
+    );
+  } catch (err) {
+    console.warn('[linkedin] Could not read company links (non-fatal):', err.message);
+    return [];
+  }
+};
+
 // ─── Contact Info Scraper ─────────────────────────────────────────────────────
 // LinkedIn exposes the "Contact info" modal at a dedicated overlay URL — no
 // click-through needed. Because this is scraped from the exact confirmed
@@ -521,13 +547,24 @@ const scrapeProfilePage = async (page, url) => {
   const mainText = await scrapePageText(page, url);
 
   if (!mainText) {
-    return { text: null, posts: [], contactInfo: null, sessionExpired: true };
+    return { text: null, posts: [], contactInfo: null, companyLinks: [], sessionExpired: true };
   }
+
+  // Employer links from the main profile, as a fallback for profiles whose
+  // experience sub-page is restricted.
+  let companyLinks = await extractCompanyLinks(page);
 
   // 2. Also scrape the /details/experience/ sub-page (full timeline with dates)
   const experienceUrl = url.replace(/\/$/, '') + '/details/experience/';
   console.log('[linkedin] Also scraping experience page:', experienceUrl);
   const expText = await scrapePageText(page, experienceUrl).catch(() => null);
+
+  // Read the employer hrefs while still on the experience page — this listing
+  // is complete and strictly reverse-chronological, so it beats the main page.
+  if (expText) {
+    const expLinks = await extractCompanyLinks(page);
+    if (expLinks.length) companyLinks = expLinks;
+  }
 
   // 3. Also scrape /details/education/
   const educationUrl = url.replace(/\/$/, '') + '/details/education/';
@@ -551,7 +588,7 @@ const scrapeProfilePage = async (page, url) => {
     eduText || '',
   ].filter(Boolean).join('\n');
 
-  return { text: combined, posts, contactInfo, sessionExpired: false };
+  return { text: combined, posts, contactInfo, companyLinks, sessionExpired: false };
 };
 
 // ─── Activity Feed Scraper ──────────────────────────────────────────────────────
@@ -706,12 +743,22 @@ export const scrapeLinkedInActivity = async (linkedinUrl) => {
  *   contactInfo — email/website scraped directly from this profile's Contact
  *                 Info panel, authoritative since it's tied to the exact URL
  */
-export const scrapeLinkedIn = async (linkedinUrl) => {
-  if (!linkedinUrl) return { text: null, posts: [], contactInfo: null, authFailed: false };
-
-  const url = linkedinUrl.split('?')[0].replace(/\/$/, '');
-  console.log(`[linkedin] Scraping: ${url}`);
-
+/**
+ * Establish an authenticated LinkedIn session, hand the page to `fn`, then
+ * persist the (rotated) cookie jar and tear the browser down.
+ *
+ * Everything that needs a logged-in LinkedIn page goes through here — profile
+ * scraping and company-page scraping alike — so the login/verify/recover
+ * ladder below exists once rather than per caller.
+ *
+ * @param {(page: import('puppeteer').Page) => Promise<any>} fn
+ * @param {Object}   opts
+ * @param {Function} opts.persist  Given fn's result, decide whether to save the
+ *                                 jar. Skipped when a wall appeared mid-scrape,
+ *                                 so a dead session is never written back.
+ * @returns {Promise<{ok: boolean, result?: any, authFailed?: boolean, reason?: string|null, error?: Error}>}
+ */
+export const withLinkedInSession = async (fn, { persist = () => true } = {}) => {
   let browser;
   try {
     const launched = await launchBrowser();
@@ -784,55 +831,77 @@ export const scrapeLinkedIn = async (linkedinUrl) => {
     if (!loggedIn) {
       console.warn('[linkedin] ❌ Could not establish an authenticated session — aborting (will NOT scrape logged-out)');
       await browser.close();
-      return { text: null, posts: [], contactInfo: null, authFailed: true, reason: loginReason };
+      return { ok: false, authFailed: true, reason: loginReason };
     }
-    console.log('[linkedin] ✅ Confirmed logged in — proceeding to scrape profile');
+    console.log('[linkedin] ✅ Confirmed logged in — proceeding');
 
-    // ── Scrape the profile (+ activity in the same session) ───────────────
-    let { text, posts, contactInfo, sessionExpired } = await scrapeProfilePage(page, url);
-
-    // If a wall still appears mid-scrape, the session died — fail rather than
-    // enriching garbage. (scrapePageText returns null on a login/signup wall.)
-    if (sessionExpired) {
-      console.warn('[linkedin] ❌ Auth wall appeared during profile scrape — aborting');
-      await browser.close();
-      return { text: null, posts: [], contactInfo: null, authFailed: true };
-    }
+    const result = await fn(page);
 
     // Persist the jar AS IT NOW STANDS. LinkedIn rotates session tokens during a
     // visit; capturing the live cookies (full companion set included) and saving
     // them keeps the stored session current, so the next run resumes a fresh
     // session instead of replaying a stale one that gets revoked.
-    try {
-      await saveSession(await page.cookies());
-    } catch (e) {
-      console.warn('[linkedin] Could not persist refreshed session:', e.message);
+    if (persist(result)) {
+      try {
+        await saveSession(await page.cookies());
+      } catch (e) {
+        console.warn('[linkedin] Could not persist refreshed session:', e.message);
+      }
     }
 
     await browser.close();
-
-    if (!text || text.length < 200) {
-      console.warn('[linkedin] Profile text too short');
-      return { text: null, posts, contactInfo, authFailed: false };
-    }
-
-    // Clean up text
-    const cleaned = text
-      .split('\n')
-      .map(l => l.trim())
-      .filter(l => l.length > 2)
-      .join('\n')
-      .replace(/\n{3,}/g, '\n\n')
-      .slice(0, 5000);
-
-    console.log(`[linkedin] ✅ Scraped ${cleaned.length} chars | ${posts.length} activity posts`);
-    return { text: cleaned, posts, contactInfo, authFailed: false };
+    return { ok: true, result };
 
   } catch (err) {
     console.error('[linkedin] Error:', err.message);
     if (browser) await browser.close().catch(() => {});
-    return { text: null, posts: [], contactInfo: null, authFailed: false };
+    return { ok: false, error: err };
   }
+};
+
+export const scrapeLinkedIn = async (linkedinUrl) => {
+  const empty = { text: null, posts: [], contactInfo: null, companyLinks: [], authFailed: false };
+  if (!linkedinUrl) return empty;
+
+  const url = linkedinUrl.split('?')[0].replace(/\/$/, '');
+  console.log(`[linkedin] Scraping: ${url}`);
+
+  const session = await withLinkedInSession(
+    (page) => scrapeProfilePage(page, url),
+    // If a wall appears mid-scrape the session died — do not write that jar back.
+    { persist: (r) => !r?.sessionExpired }
+  );
+
+  if (!session.ok) {
+    if (session.authFailed) return { ...empty, authFailed: true, reason: session.reason };
+    return empty;
+  }
+
+  const { text, posts, contactInfo, companyLinks, sessionExpired } = session.result;
+
+  // scrapePageText returns null on a login/signup wall — fail rather than
+  // enriching garbage from a logged-out page.
+  if (sessionExpired) {
+    console.warn('[linkedin] ❌ Auth wall appeared during profile scrape — aborting');
+    return { ...empty, authFailed: true };
+  }
+
+  if (!text || text.length < 200) {
+    console.warn('[linkedin] Profile text too short');
+    return { ...empty, posts, contactInfo, companyLinks };
+  }
+
+  // Clean up text
+  const cleaned = text
+    .split('\n')
+    .map(l => l.trim())
+    .filter(l => l.length > 2)
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .slice(0, 5000);
+
+  console.log(`[linkedin] ✅ Scraped ${cleaned.length} chars | ${posts.length} activity posts | ${companyLinks.length} company link(s)`);
+  return { text: cleaned, posts, contactInfo, companyLinks, authFailed: false };
 };
 
 // ─── Admin-triggered Session Refresh (headless-safe) ─────────────────────────

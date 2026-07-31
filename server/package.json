@@ -11,6 +11,7 @@
     "db:seed-personas": "node scripts/seed-default-personas.js",
     "db:seed-settings": "node scripts/seed-default-settings.js",
     "db:backfill-company-refs": "node scripts/backfill-company-refs.js",
+    "db:reresolve-companies": "node scripts/reresolve-companies.js",
     "linkedin:login": "node scripts/linkedin-login.mjs",
     "linkedin:cookie": "node scripts/linkedin-cookie.mjs"
   },
@@ -39,6 +40,7 @@
     "puppeteer": "^25.1.0",
     "resend": "^6.12.4",
     "stripe": "^22.1.1",
+    "tldts": "^7.4.10",
     "uuid": "^14.0.0",
     "ws": "^8.21.1"
   },

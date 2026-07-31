@@ -13,6 +13,7 @@ import Signal from '../../models/Signal.js';
 import { askClaude, AIFallbackRequiredError } from '../ai/claudeClient.js';
 import { searchGoogle } from './discovery.js';
 import { buildProfileSnapshot, clipPromptText } from './profileSnapshot.js';
+import { fetchBoardOpenRoles, resolveBoardFromUrls, formatBoardBlock } from '../company/atsBoards.js';
 
 const SYSTEM_PROMPT = `You are a precision business-signal detection engine for a B2B prospect intelligence platform.
 You are given a user-authored signal definition and context about a target (a person or a company).
@@ -63,18 +64,38 @@ Apply the signal definition to this target. ${RESULT_SHAPE}`;
   }
 };
 
-/** Fresh Google snippets for a signal query — best-effort, empty on failure. */
-const searchSnippets = async (query) => {
+/**
+ * Fresh Google snippets for a signal query — best-effort, empty on failure.
+ *
+ * Returns links as well as text: a snippet about hiring usually points at the
+ * company's actual job board, which can then be read directly instead of
+ * guessed at. Serper's `date` is surfaced inline so the model can weigh how old
+ * a claim is rather than treating every result as current.
+ */
+const searchSnippets = async (query, { tbs } = {}) => {
   try {
-    const results = await searchGoogle(query);
-    return results
-      .map((r) => `- ${r.title || ''}: ${r.snippet || ''}`)
-      .filter((s) => s.length > 5)
+    const results = await searchGoogle(query, { tbs });
+    const text = results
+      .map((r) => `- ${r.date ? `[${r.date}] ` : '[undated] '}${r.title || ''}: ${r.snippet || ''}`)
+      .filter((s) => s.length > 15)
       .join('\n');
+    return { text, links: results.map((r) => r.link).filter(Boolean) };
   } catch {
-    return '';
+    return { text: '', links: [] };
   }
 };
+
+// Signals whose truth changes week to week and whose evidence therefore rots.
+const HIRING_RE = /hir|job|recruit|vacan|opening|role|headcount|talent|team expansion|growth of the team/i;
+const isHiringSignal = (s) => HIRING_RE.test(`${s.name || ''} ${s.prompt || ''}`);
+
+const RECENCY_NOTE = `=== HOW TO WEIGH THIS EVIDENCE ===
+Each snippet is prefixed with its publication date, or [undated] when Google
+reports none. Search results persist long after the thing they describe ends —
+a filled role, a finished round, a departed employee. Undated evidence, and
+evidence older than about a year, cannot establish that something is true NOW.
+Treat it as historical, say so in the finding, and lower your confidence
+accordingly rather than presenting it as the current state.`;
 
 /**
  * Signals to run for a target. When a campaign has selected specific Signals,
@@ -100,17 +121,68 @@ export const detectCompanySignals = async (company, { callAI = askClaude, select
   const signals = await getActiveSignals(company.organization, 'company', selectedSignalIds);
   if (!signals.length) return company.signals || [];
 
+  // A signal searched on the bare name ("Kiln raised $17M") can easily belong
+  // to a namesake — and it is persisted, then injected verbatim into outreach.
+  // Detecting nothing is strictly better than asserting someone else's news.
+  const identity = company.domainKey || company.linkedinKey;
+  if (!identity) {
+    console.warn(
+      `[signalDetector] Skipping company signals for "${company.name}" — no verified domain or LinkedIn page to anchor the search`
+    );
+    return company.signals || [];
+  }
+
   console.log(`[signalDetector] Detecting ${signals.length} company signal(s) for "${company.name}"`);
   const entries = [];
+  const anchor = company.domainKey ? `"${company.domainKey}" ` : '';
+
+  // Whether a company is hiring is a fact with an expiry date, and search
+  // results have none. Read the company's own applicant tracking system so an
+  // empty board can actually say "not hiring" — the half of the answer that
+  // snippets structurally cannot provide.
+  let boardBlock = '';
+  if (signals.some(isHiringSignal)) {
+    try {
+      const stored = company.atsBoard?.slug
+        ? { provider: company.atsBoard.provider, slug: company.atsBoard.slug, url: company.atsBoard.url }
+        : null;
+
+      let board = stored ? await fetchBoardOpenRoles(stored) : null;
+      if (!board) {
+        const { links } = await searchSnippets(`"${company.name}" ${anchor}careers jobs`);
+        board = await resolveBoardFromUrls([...links, company.website || '']);
+      }
+
+      if (board) {
+        boardBlock = formatBoardBlock(board);
+        company.atsBoard = {
+          provider: board.provider, slug: board.slug, url: board.url,
+          openRoles: board.openRoles, lastCheckedAt: board.fetchedAt,
+        };
+      }
+    } catch (err) {
+      // A board we cannot read is NOT the same as a board with no roles, so we
+      // simply fall through to snippet evidence rather than implying "0".
+      console.warn(`[signalDetector] Job board lookup failed for "${company.name}": ${err.message}`);
+    }
+  }
 
   for (const signal of signals) {
-    const snippets = await searchSnippets(`"${company.name}" ${signal.name}`);
+    const hiring = isHiringSignal(signal);
+    const snippets = await searchSnippets(
+      `"${company.name}" ${anchor}${signal.name}`,
+      // Restrict time-sensitive signals to the past year so three-year-old
+      // postings stop arguing that a company is hiring today.
+      hiring ? { tbs: 'qdr:y' } : {}
+    );
     const entry = await runOneSignal(signal, {
       callAI,
-      targetLabel: `Company: ${company.name}${company.domain ? ` (${company.domain})` : ''}`,
+      targetLabel: `Company: ${company.name}${identity ? ` (${identity})` : ''}`,
       contextBlocks: [
+        hiring ? boardBlock : '',
         company.aiAnalysis?.summary ? `=== STORED COMPANY ANALYSIS ===\n${clipPromptText(company.aiAnalysis.summary, 1200)}` : '',
-        snippets ? `=== FRESH GOOGLE SNIPPETS ===\n${clipPromptText(snippets, 1500)}` : '',
+        snippets.text ? `=== GOOGLE SNIPPETS (may be stale) ===\n${clipPromptText(snippets.text, 1500)}` : '',
+        snippets.text ? RECENCY_NOTE : '',
       ],
     });
     if (entry) entries.push(entry);

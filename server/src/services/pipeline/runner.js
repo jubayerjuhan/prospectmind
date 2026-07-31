@@ -6,7 +6,8 @@
 import Prospect from '../../models/Prospect.js';
 import Organization from '../../models/Organization.js';
 import ProspectList from '../../models/ProspectList.js';
-import { findOrCreateCompany } from '../company/companyService.js';
+import { findOrCreatePlaceholder } from '../company/companyService.js';
+import { resolveCompanyForProspect, deriveCompanyIdentity } from '../company/companyResolver.js';
 import { analyzeCompany } from '../company/companyAnalyzer.js';
 import { askAI } from '../ai/claudeClient.js';
 import { resolveIdentity } from './discovery.js';
@@ -75,36 +76,11 @@ export const runPipeline = async (prospectId) => {
     prospects: prospect._id,
   }).lean();
 
-  // Link the prospect to a first-class Company (v2 Phase A). Single integration
-  // point covering every creation path (single/bulk/add-and-create/import),
-  // since they all flow through the pipeline. Best-effort — never block the run.
-  if (prospect.company?.trim() && !prospect.companyRef) {
-    try {
-      const company = await findOrCreateCompany({ organization: prospect.organization, name: prospect.company });
-      if (company) {
-        prospect.companyRef = company._id;
-        await Prospect.findByIdAndUpdate(prospectId, { companyRef: company._id });
-
-        // First-time company analysis + signal detection (HLD §2.2, §3.3) —
-        // fire-and-forget so the prospect pipeline never waits; both are
-        // cached/persistent after the first run.
-        if (!company.aiAnalysis?.lastAnalyzedAt || !(company.signals || []).length) {
-          analyzeCompany(company)
-            .then((analyzed) => {
-              if (analyzed && !(analyzed.signals || []).length) {
-                return detectCompanySignals(analyzed, { selectedSignalIds: campaignList?.signals || [] });
-              }
-              return null;
-            })
-            .catch((err) =>
-              console.warn(`  ⚠ Company analysis/signals failed for "${company.name}": ${err.message}`)
-            );
-        }
-      }
-    } catch (companyErr) {
-      console.warn(`  ⚠ Company link skipped: ${companyErr.message}`);
-    }
-  }
+  // A company hint derived from the raw fields alone (no DB, no network). Used
+  // only to anchor Layer 2's searches; the authoritative link happens AFTER
+  // enrichment, once the profile can actually say who the employer is.
+  const identityHint = deriveCompanyIdentity(prospect);
+  const companyDomainHint = identityHint.keyField === 'domainKey' ? identityHint.key : '';
 
   const campaignDescription =
     (campaignList?.campaignDescription?.trim()) ||
@@ -161,8 +137,63 @@ export const runPipeline = async (prospectId) => {
     // ── Layer 2: Enrichment ─────────────────────────────────────────────────
     await updateStatus(prospectId, 'enriching');
     console.log('  → Layer 2: Profile Enrichment');
-    const enrichedProfile = await enrichProfile(prospect, identity, { callAI, prospectContext });
+    const enrichedProfile = await enrichProfile(prospect, identity, { callAI, prospectContext, companyDomainHint });
     if (await pauseIfRequested(prospectId)) return { success: false, paused: true, prospectId };
+
+    // ── Company identity resolution ─────────────────────────────────────────
+    // Deliberately placed AFTER enrichment: Layer 2 is the only thing that can
+    // produce the employer's LinkedIn page, work email and contact website,
+    // and without them the resolver has nothing but the name to go on — which
+    // is exactly how a prospect ends up attached to a same-named company they
+    // have never worked for. Best-effort: never fail the run over it.
+    let linkedCompany = null;
+    try {
+      const resolution = await resolveCompanyForProspect({
+        // enrichedProfile is not persisted yet, so hand it over in-memory.
+        prospect: { ...(prospect.toObject?.() ?? prospect), enrichedProfile },
+        organization: prospect.organization,
+      });
+      linkedCompany = resolution.company;
+
+      if (linkedCompany) {
+        const changed = String(prospect.companyRef || '') !== String(linkedCompany._id);
+        prospect.companyRef = linkedCompany._id;
+        await Prospect.findByIdAndUpdate(prospectId, {
+          companyRef: linkedCompany._id,
+          companyLinkSource: resolution.evidence.source,
+          companyLinkConfidence: resolution.evidence.confidence,
+          companyLinkedAt: new Date(),
+          // This run regenerates the prose, so any prior contamination clears.
+          needsReenrichment: false,
+          reenrichmentReason: '',
+          ...(changed && { outreachStale: false }),
+        });
+        console.log(
+          `  🏢 Company: "${linkedCompany.name}" via ${resolution.evidence.source}` +
+          `${resolution.evidence.value ? ` (${resolution.evidence.value})` : ''} — ${resolution.action}`
+        );
+
+        // First-time company analysis + signal detection (HLD §2.2, §3.3) —
+        // fire-and-forget so the prospect pipeline never waits; both are
+        // cached/persistent after the first run.
+        const identityKey = linkedCompany.linkedinKey || linkedCompany.domainKey || '';
+        const stale = linkedCompany.aiAnalysis?.analyzedForKey !== identityKey;
+        if (stale || !(linkedCompany.signals || []).length) {
+          analyzeCompany(linkedCompany)
+            .then((analyzed) => {
+              if (analyzed && !(analyzed.signals || []).length) {
+                return detectCompanySignals(analyzed, { selectedSignalIds: campaignList?.signals || [] });
+              }
+              return null;
+            })
+            .catch((err) =>
+              console.warn(`  ⚠ Company analysis/signals failed for "${linkedCompany.name}": ${err.message}`)
+            );
+        }
+      }
+    } catch (companyErr) {
+      console.warn(`  ⚠ Company link skipped: ${companyErr.message}`);
+    }
 
     // ── Layer 3: Classification ─────────────────────────────────────────────
     await updateStatus(prospectId, 'classifying');
@@ -268,6 +299,29 @@ export const runPipeline = async (prospectId) => {
         pipelinePausedAt: latest.pipelinePausedAt || new Date(),
       });
       return { success: false, paused: true, prospectId };
+    }
+
+    // The company link now happens after Layer 2, so a failure before that
+    // (a dead LinkedIn session, most often) would leave the prospect with no
+    // company at all — worse than the name-only link it used to get. Fall back
+    // to a placeholder so the Companies view still accounts for them.
+    if (prospect.company?.trim() && !prospect.companyRef) {
+      try {
+        const placeholder = await findOrCreatePlaceholder({
+          organization: prospect.organization,
+          name: prospect.company,
+        });
+        if (placeholder) {
+          await Prospect.findByIdAndUpdate(prospectId, {
+            companyRef: placeholder._id,
+            companyLinkSource: 'name-only',
+            companyLinkConfidence: 'low',
+            companyLinkedAt: new Date(),
+          });
+        }
+      } catch (linkErr) {
+        console.warn(`  ⚠ Fallback company link failed: ${linkErr.message}`);
+      }
     }
 
     await updateStatus(prospectId, 'failed', { pipelineError: error.message });

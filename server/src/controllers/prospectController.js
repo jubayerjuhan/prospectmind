@@ -1,6 +1,8 @@
 import Prospect from '../models/Prospect.js';
 import ProspectList from '../models/ProspectList.js';
+import Company from '../models/Company.js';
 import { queuePipelineRun } from '../services/pipeline/queue.js';
+import { ensureCompanyLink } from '../services/company/companyResolver.js';
 import { sendOutreachEmail } from '../services/resend/emailService.js';
 import { generateOutreachMessages } from '../services/pipeline/outreach.js';
 import { buildProspectFilter } from '../utils/buildProspectFilter.js';
@@ -40,7 +42,14 @@ export const getProspect = async (req, res) => {
     const prospect = await Prospect.findOne({
       _id: req.params.id,
       organization: req.organization._id,
-    }).lean();
+    })
+      // Without this the page only ever had the raw ObjectId, so it could not
+      // show which company was linked — or that the link was unverified.
+      .populate(
+        'companyRef',
+        'name domain website linkedinUrl industry size headquarters founded needsReview reviewReason aiAnalysis.summary aiAnalysis.source'
+      )
+      .lean();
     if (!prospect) return res.status(404).json({ success: false, message: 'Prospect not found.' });
 
     // The campaign this prospect belongs to, with the Personas it targets — the
@@ -91,6 +100,8 @@ export const createProspect = async (req, res) => {
       createdBy: req.user._id,
     });
 
+    await ensureCompanyLink(prospect);
+
     // Kick off pipeline async (don't await)
     queuePipelineRun(prospect._id).catch((err) =>
       console.error(`Queue error for ${prospect._id}:`, err.message)
@@ -111,6 +122,31 @@ export const updateProspect = async (req, res) => {
     for (const field of EDITABLE_FIELDS) {
       if (req.body[field] !== undefined) {
         updates[field] = typeof req.body[field] === 'string' ? req.body[field].trim() : req.body[field];
+      }
+    }
+
+    // Reassigning the company by hand. Needed because the resolver flags a
+    // prospect it cannot identify rather than guessing, and without an override
+    // that flag would be a dead end. A manual link is never re-derived.
+    if (req.body.companyRef !== undefined) {
+      if (req.body.companyRef === null || req.body.companyRef === '') {
+        Object.assign(updates, { companyRef: null, companyLinkSource: 'none', companyLinkConfidence: 'none' });
+      } else {
+        const target = await Company.findOne({ _id: req.body.companyRef, organization: req.organization._id }).lean();
+        if (!target) {
+          return res.status(404).json({ success: false, message: 'Company not found in this organization.' });
+        }
+        Object.assign(updates, {
+          companyRef: target._id,
+          company: target.name,
+          companyLinkSource: 'manual',
+          companyLinkConfidence: 'high',
+          companyLinkedAt: new Date(),
+          // Prose written against the previous company is now wrong.
+          needsReenrichment: true,
+          reenrichmentReason: 'company-reassigned-manually',
+          outreachStale: true,
+        });
       }
     }
 
@@ -157,6 +193,9 @@ export const bulkCreateProspects = async (req, res) => {
     }));
 
     const created = await Prospect.insertMany(toCreate);
+
+    // insertMany bypasses document middleware, so the link has to be explicit.
+    for (const p of created) await ensureCompanyLink(p).catch(() => null);
 
     // Fire pipeline for each
     created.forEach((p) => {

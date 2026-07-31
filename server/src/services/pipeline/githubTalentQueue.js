@@ -7,6 +7,7 @@ import Prospect from '../../models/Prospect.js';
 import ProspectList from '../../models/ProspectList.js';
 import Organization from '../../models/Organization.js';
 import { queuePipelineRun, IDLE_POLL_OPTS, runWorkers } from './queue.js';
+import { ensureCompanyLink } from '../company/companyResolver.js';
 import { searchRepositories, fetchContributors, fetchUserProfile, buildProspectData } from '../scraper/githubTalentScraper.js';
 
 // Initialize Redis connection for BullMQ
@@ -131,6 +132,8 @@ const processGithubTalentCampaign = async (campaignId) => {
       
       await prospect.save();
       createdCount++;
+
+      await ensureCompanyLink(prospect).catch(() => null);
       
       // Instantly add to ProspectList so it shows up in UI immediately
       if (listId) {

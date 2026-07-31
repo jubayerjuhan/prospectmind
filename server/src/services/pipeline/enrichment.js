@@ -15,6 +15,7 @@ import { clipPromptText } from './profileSnapshot.js';
 import { LinkedInAuthError } from '../../utils/pipelineErrors.js';
 import { notifyLinkedInSessionDead } from '../scraper/linkedinSessionAlert.js';
 import * as linkedinLiveLogin from '../scraper/linkedinLiveLogin.js';
+import { registrableDomain, normalizeDomainKey } from '../../utils/domains.js';
 
 const SYSTEM_PROMPT = `You are an expert B2B prospect research analyst.
 You are given real scraped data about ONE confirmed person, tied to a specific LinkedIn profile URL.
@@ -62,18 +63,22 @@ const searchGoogle = async (query) => {
   }
 };
 
-const collectSnippets = async (fullName, company) => {
+const collectSnippets = async (fullName, company, domainKey = '') => {
   const currentYear = new Date().getFullYear();
   const queries = [
     `"${fullName}" site:linkedin.com/in`,
-    `"${fullName}" ${company}`,
+    // When the employer's domain is known, anchor on it rather than on a bare
+    // company name — "Kiln" alone returns pottery suppliers as readily as the
+    // company the prospect actually works for.
+    domainKey ? `"${fullName}" site:${domainKey}` : null,
+    domainKey ? `"${fullName}" "${domainKey}"` : `"${fullName}" "${company}"`,
     `"${fullName}" github`,
     `"${fullName}" web3 OR blockchain OR developer`,
     // Recent activity: Google-indexed LinkedIn posts (most likely to be current)
     `"${fullName}" site:linkedin.com/posts`,
     // Recent talks, announcements, events (scoped to current + last year)
     `"${fullName}" speaking OR keynote OR announced OR launched ${currentYear} OR ${currentYear - 1}`,
-  ];
+  ].filter(Boolean);
 
   const allResults = await Promise.all(queries.map((q) => searchGoogle(q)));
 
@@ -176,9 +181,13 @@ const usernameMatchesName = (username, firstName, lastName) => {
 // already know for certain about THIS confirmed profile: the exact LinkedIn
 // slug, the known company, or a personal domain that is literally their name.
 
+// Generic corporate/industry words carry no identifying power: "Kiln Labs"
+// must not be corroborated by any page that happens to say "labs".
 const STOPWORDS = new Set([
   'the', 'inc', 'llc', 'ltd', 'co', 'corp', 'group', 'company', 'companies',
   'technologies', 'technology', 'labs', 'lab', 'studio', 'studios', 'team', 'and', 'of', 'for',
+  'ventures', 'capital', 'partners', 'holdings', 'global', 'network', 'protocol',
+  'foundation', 'dao', 'digital', 'solutions', 'systems', 'services', 'international',
 ]);
 
 const extractLinkedinSlug = (linkedinUrl) => {
@@ -187,30 +196,81 @@ const extractLinkedinSlug = (linkedinUrl) => {
   return match ? match[1].toLowerCase() : null;
 };
 
-const companyTokensOf = (company) =>
-  (company || '')
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((t) => t.length >= 3 && !STOPWORDS.has(t));
+// Collapse to space-separated alphanumeric words, padded with a leading and
+// trailing space so `.includes(' word ')` is an exact word-boundary test.
+// Substring matching is not good enough here — "kiln" must not match
+// "kilning" or "Wilkilnson".
+const wordSpace = (s = '') => ` ${String(s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()} `;
 
-const matchesAnchor = ({ source = '', title = '', snippet = '' }, { companyTokens, linkedinSlug, firstName, lastName }) => {
-  const haystack = `${source} ${title} ${snippet}`.toLowerCase();
-  if (linkedinSlug && haystack.includes(linkedinSlug)) return true;
-  if (companyTokens.some((token) => haystack.includes(token))) return true;
+// A 3-character token like "ai" or "web" matches far too much of the internet
+// to corroborate anything on its own. Short real names (IBM, SAP) still work:
+// they fall through to the full-phrase path below, which requires the person's
+// name to co-occur.
+const companyTokensOf = (company) =>
+  wordSpace(company)
+    .trim()
+    .split(' ')
+    .filter((t) => t.length >= 4 && !STOPWORDS.has(t));
+
+/**
+ * Decide whether a name-based search result is really about THIS person.
+ *
+ * The company name alone is not enough evidence. "Kiln" is a staking company,
+ * a design studio, and a piece of pottery equipment; a page mentioning "kiln"
+ * says nothing about which one — and treating it as evidence is what feeds a
+ * prospect's bio with facts about the wrong employer.
+ *
+ * So a company-name hit only corroborates when it is distinctive on its own
+ * (a multi-word name), or when the person is named on the same page.
+ */
+const matchesAnchor = (
+  { source = '', title = '', snippet = '' },
+  { companyPhrase = '', companyTokens = [], companyDomainKey = '', linkedinSlug, firstName, lastName }
+) => {
+  // The confirmed LinkedIn slug in the URL — decisive.
+  if (linkedinSlug && source.toLowerCase().includes(linkedinSlug)) return true;
+
+  // The page IS the company's own site — decisive.
+  if (companyDomainKey && registrableDomain(source) === companyDomainKey) return true;
+
+  // The URL is deliberately excluded from the text below. A token buried in a
+  // path or query string is not a statement about this person, and the old
+  // implementation matched exactly that.
+  const text = wordSpace(`${title} ${snippet}`);
+  const fn = wordSpace(firstName).trim();
+  const ln = wordSpace(lastName).trim();
+  const namedHere = (fn && text.includes(` ${fn} `)) || (ln && text.includes(` ${ln} `));
+
+  // The verified company domain spelled out in the body text ("kiln.fi" →
+  // " kiln fi ", matching how the text itself was normalized).
+  if (companyDomainKey && text.includes(wordSpace(companyDomainKey))) return true;
+
+  const phraseWords = companyPhrase ? companyPhrase.split(' ').filter(Boolean) : [];
+  const fullPhraseHit = phraseWords.length > 0 && text.includes(wordSpace(companyPhrase));
+
+  // A multi-word company name is distinctive enough by itself.
+  if (fullPhraseHit && phraseWords.length > 1) return true;
+
+  // A single-word name ("Kiln") is not — require the person on the same page.
+  const tokensAllHit = companyTokens.length > 0 && companyTokens.every((t) => text.includes(` ${t} `));
+  if (namedHere && (fullPhraseHit || tokensAllHit)) return true;
 
   // A domain that is literally the person's own name (e.g. farhadhossain.dev)
   // is strong self-identifying evidence, independent of company.
   try {
     const host = new URL(source).hostname.toLowerCase().replace(/^www\./, '');
     const hostCompact = host.replace(/[^a-z0-9]/g, '');
-    const fn = (firstName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-    const ln = (lastName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (fn && ln && hostCompact.includes(fn) && hostCompact.includes(ln)) return true;
+    const fnc = (firstName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const lnc = (lastName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (fnc && lnc && hostCompact.includes(fnc) && hostCompact.includes(lnc)) return true;
   } catch {
     // invalid URL — ignore
   }
   return false;
 };
+
+// Exported for unit tests only — not part of the pipeline's public surface.
+export const __anchorTesting = { matchesAnchor, companyTokensOf, wordSpace };
 
 // ─── Extract social/profile links from scraped text ─────────────────────────
 
@@ -243,9 +303,18 @@ const extractLinksFromText = (text, firstName, lastName) => {
 
 // ─── Main Export ──────────────────────────────────────────────────────────────
 
-export const enrichProfile = async (prospect, discoveredIdentity, { callAI = askClaude, prospectContext = '' } = {}) => {
+export const enrichProfile = async (
+  prospect,
+  discoveredIdentity,
+  { callAI = askClaude, prospectContext = '', companyDomainHint = '' } = {}
+) => {
   let { linkedinUrl, githubUrl, xUrl, telegramHandle, email, website } = discoveredIdentity;
   const fullName = `${prospect.firstName} ${prospect.lastName || ''}`.trim();
+
+  // The employer's domain, when the runner could derive one from raw hints
+  // before enrichment. Anchors both the search queries and the corroboration
+  // guard, so a namesake company's pages never enter the prompt.
+  const companyDomainKey = normalizeDomainKey(companyDomainHint);
 
   console.log(`[enrichment] Starting enrichment for ${fullName}`);
 
@@ -256,7 +325,7 @@ export const enrichProfile = async (prospect, discoveredIdentity, { callAI = ask
   // when two browser instances shared the same CDPSession cookies.
   const [linkedinResult, snippets] = await Promise.all([
     scrapeLinkedIn(linkedinUrl),
-    collectSnippets(fullName, prospect.company || ''),
+    collectSnippets(fullName, prospect.company || '', companyDomainKey),
   ]);
 
   // If we had a LinkedIn URL but the scraper could not authenticate, FAIL LOUDLY
@@ -286,6 +355,15 @@ export const enrichProfile = async (prospect, discoveredIdentity, { callAI = ask
   const linkedinText  = linkedinResult?.text || null;
   const linkedinPosts = linkedinResult?.posts || [];
 
+  // Employer hrefs off the experience section, reverse-chronological — entry 0
+  // is the current role. Absolutized so it survives as a stored identity key.
+  const companyLinks = (linkedinResult?.companyLinks || [])
+    .map((href) => (href.startsWith('http') ? href : `https://www.linkedin.com${href}`));
+  const currentEmployerLinkedin = companyLinks[0] || '';
+  if (currentEmployerLinkedin) {
+    console.log(`[enrichment] 🏢 Current employer LinkedIn: ${currentEmployerLinkedin}`);
+  }
+
   if (linkedinPosts.length > 0) {
     console.log(`[enrichment] ✅ ${linkedinPosts.length} LinkedIn posts fetched for recent activity`);
   } else {
@@ -312,7 +390,14 @@ export const enrichProfile = async (prospect, discoveredIdentity, { callAI = ask
   // slug, the known company, or a personal domain matching the person's name.
   const linkedinSlug = extractLinkedinSlug(linkedinUrl);
   const companyTokens = companyTokensOf(prospect.company);
-  const anchor = { companyTokens, linkedinSlug, firstName: prospect.firstName, lastName: prospect.lastName };
+  const anchor = {
+    companyPhrase: wordSpace(prospect.company).trim(),
+    companyTokens,
+    companyDomainKey,
+    linkedinSlug,
+    firstName: prospect.firstName,
+    lastName: prospect.lastName,
+  };
 
   const linkedinSlugSnippets = linkedinSlug
     ? snippets.filter((s) => s.source.toLowerCase().includes(linkedinSlug))
@@ -586,6 +671,9 @@ Return JSON:
     email:           email           || discoveredIdentity.email,
     website:         website         || discoveredIdentity.website,
     ...enriched,
+    // Scraped straight off the profile DOM, so it outranks anything the AI
+    // inferred: this is the employer's exact LinkedIn entity, not a name.
+    ...(currentEmployerLinkedin && { companyLinkedinUrl: currentEmployerLinkedin }),
     ...(githubData && {
       githubStats: {
         repos: githubData.publicRepos,

@@ -15,7 +15,15 @@ const SERPER_API_URL = 'https://google.serper.dev/search';
 
 // ─── Serper Search Helper ────────────────────────────────────────────────────
 
-export const searchGoogle = async (query) => {
+/**
+ * @param {String} query
+ * @param {Object} [opts]
+ * @param {String} [opts.tbs]  Serper time filter, e.g. 'qdr:y' (past year).
+ *                             Time-sensitive claims — hiring above all — must
+ *                             not be built on a posting Google indexed in 2023.
+ * @param {Number} [opts.num]
+ */
+export const searchGoogle = async (query, { tbs, num = 5 } = {}) => {
   const apiKey = process.env.SERPER_API_KEY;
 
   if (!apiKey) {
@@ -30,7 +38,7 @@ export const searchGoogle = async (query) => {
         'X-API-KEY': apiKey,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ q: query, num: 5 }),
+      body: JSON.stringify({ q: query, num, ...(tbs ? { tbs } : {}) }),
     });
 
     if (!res.ok) {

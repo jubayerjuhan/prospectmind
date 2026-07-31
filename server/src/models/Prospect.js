@@ -32,6 +32,11 @@ const enrichedProfileSchema = new mongoose.Schema(
     previousCompanies: [String],
     founderExperience: Boolean,
 
+    // The employer's own LinkedIn page, captured from the profile's experience
+    // section. Unlike the company NAME this is an exact entity id — it is what
+    // distinguishes two unrelated companies that happen to share a name.
+    companyLinkedinUrl: String,
+
     // Company (for clients)
     companySize: String,
     fundingStage: String,
@@ -53,6 +58,7 @@ const enrichedProfileSchema = new mongoose.Schema(
       {
         title: String,
         company: String,
+        companyLinkedinUrl: String,
         duration: String,
         location: String,
         description: String,
@@ -107,9 +113,30 @@ const prospectSchema = new mongoose.Schema(
     typeHint: { type: String, enum: ['talent', 'client', 'unknown'], default: 'unknown' },
     description: { type: String, default: '' }, // Optional user-provided context fed into the AI pipeline
 
+    // How `companyRef` was decided. A company NAME is not an identity — several
+    // unrelated companies share one — so we record which evidence resolved it
+    // and how much to trust that. 'manual' always wins and is never overwritten.
+    companyLinkSource: {
+      type: String,
+      enum: ['manual', 'domain-hint', 'work-email', 'linkedin-company', 'contact-website', 'name-only', 'none'],
+      default: 'none',
+    },
+    companyLinkConfidence: { type: String, enum: ['high', 'medium', 'low', 'none'], default: 'none' },
+    companyLinkedAt: Date,
+
+    // Set when a prospect's stored AI prose (bio, persona reasoning, outreach)
+    // was generated while the company link pointed at the wrong entity. The
+    // text is left in place — it is still the best available copy — but the UI
+    // marks it stale until the pipeline is re-run.
+    needsReenrichment: { type: Boolean, default: false, index: true },
+    reenrichmentReason: { type: String, default: '' },
+    outreachStale: { type: Boolean, default: false },
+
     // Raw contact hints (may be incomplete)
     rawEmail: String,
     rawLinkedin: String,
+    rawCompanyLinkedin: String, // linkedin.com/company/<slug> — an exact employer id
+    rawCompanyDomain: String, // operator-supplied employer domain
     rawX: String,
     rawTelegram: String,
     rawGithub: String,

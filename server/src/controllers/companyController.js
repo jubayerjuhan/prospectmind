@@ -140,14 +140,19 @@ export const updateCompany = async (req, res) => {
         return res.status(400).json({ success: false, message: 'Company name cannot be empty.' });
       }
       const newKey = normalizeCompanyName(req.body.name);
-      // Guard the unique (organization, nameKey) index: block a rename that
-      // would collide with a different existing company.
+      // Name uniqueness now applies only to unresolved placeholders, so this
+      // guard must match that index — two identified companies are allowed to
+      // share a name (that is the whole point of keying on identity).
       if (newKey !== company.nameKey) {
-        const clash = await Company.findOne({
-          organization: req.organization._id,
-          nameKey: newKey,
-          _id: { $ne: company._id },
-        }).lean();
+        const clash = (company.linkedinKey || company.domainKey)
+          ? null
+          : await Company.findOne({
+              organization: req.organization._id,
+              nameKey: newKey,
+              linkedinKey: '',
+              domainKey: '',
+              _id: { $ne: company._id },
+            }).lean();
         if (clash) {
           return res.status(409).json({ success: false, message: 'Another company with this name already exists.' });
         }
@@ -156,8 +161,15 @@ export const updateCompany = async (req, res) => {
       company.name = req.body.name.trim();
     }
 
-    for (const field of ['website', 'domain', 'industry', 'size']) {
+    // Setting a website/domain/LinkedIn URL resolves the company's identity, so
+    // the pre('validate') hook re-derives the keys and the analysis is no
+    // longer describing whatever we previously guessed.
+    for (const field of ['website', 'domain', 'industry', 'size', 'linkedinUrl']) {
       if (typeof req.body[field] === 'string') company[field] = req.body[field].trim();
+    }
+    if (company.isModified('domain') || company.isModified('website') || company.isModified('linkedinUrl')) {
+      company.needsReview = false;
+      company.reviewReason = '';
     }
 
     await company.save();
@@ -204,6 +216,16 @@ export const detectSignalsHandler = async (req, res) => {
 
     if (!company) {
       return res.status(404).json({ success: false, message: 'Company not found.' });
+    }
+
+    // Signals searched on a bare name can belong to a namesake, and they get
+    // injected verbatim into outreach — so this needs a verified identity.
+    if (!company.domainKey && !company.linkedinKey) {
+      return res.status(409).json({
+        success: false,
+        code: 'NO_VERIFIED_IDENTITY',
+        message: "Set this company's website or LinkedIn page before detecting signals — without one, results may describe a different company with the same name.",
+      });
     }
 
     const entries = await detectCompanySignals(company);

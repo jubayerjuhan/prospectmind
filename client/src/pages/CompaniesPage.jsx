@@ -82,6 +82,16 @@ export default function CompaniesPage() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="text-white text-sm font-medium truncate">{c.name}</span>
+                    {/* Two rows can now legitimately share a name, so the
+                        domain below is the only thing telling them apart. */}
+                    {c.needsReview && (
+                      <span
+                        className="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-900/50 text-amber-300 border border-amber-800 text-[10px] font-medium shrink-0"
+                        title="We could not confirm which company this is — set its website or LinkedIn page."
+                      >
+                        Unverified
+                      </span>
+                    )}
                     {isAnalyzed ? (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-900/50 text-violet-300 border border-violet-800 text-[10px] font-medium shrink-0">
                         <Sparkles size={10} /> Analyzed
@@ -92,10 +102,12 @@ export default function CompaniesPage() {
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-3 mt-0.5 text-xs text-slate-500">
-                    {c.industry && <span>{c.industry}</span>}
-                    {c.size && <span>{c.size} employees</span>}
-                    {c.domain && <span className="text-slate-600">{c.domain}</span>}
+                  <div className="flex items-center gap-3 mt-0.5 text-xs">
+                    <span className={c.domain ? 'text-indigo-400' : 'text-slate-600 italic'}>
+                      {c.domain || 'no verified domain'}
+                    </span>
+                    {c.industry && <span className="text-slate-500">{c.industry}</span>}
+                    {c.size && <span className="text-slate-500">{c.size} employees</span>}
                   </div>
                 </div>
                 <span className="flex items-center gap-1.5 text-slate-400 text-xs shrink-0">

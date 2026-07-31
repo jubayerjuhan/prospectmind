@@ -6,8 +6,18 @@ import toast from 'react-hot-toast';
 import {
   ArrowLeft, Code2, Link2, X as XIcon, Send, CheckCircle,
   Edit3, ExternalLink, MapPin, Briefcase, Activity, GraduationCap, RefreshCw,
-  AlertTriangle, Target, Zap, Star, Sparkles, Pause, Play, FileText
+  AlertTriangle, Target, Zap, Star, Sparkles, Pause, Play, FileText, Building2
 } from 'lucide-react';
+
+// How the prospect's company link was established, in plain words.
+const LINK_SOURCE_LABEL = {
+  manual: 'a manual assignment',
+  'linkedin-company': 'the employer linked on their LinkedIn profile',
+  'work-email': 'their work email domain',
+  'domain-hint': 'a supplied company domain',
+  'contact-website': 'the website on their contact info',
+  'name-only': 'the company name alone',
+};
 import EditProspectModal from '../components/prospects/EditProspectModal';
 import PersonaRadar from '../components/prospects/PersonaRadar';
 import MicButton from '../components/ui/MicButton';
@@ -300,6 +310,12 @@ export default function ProspectDetailPage() {
   const showPersonaScores = inCampaign && (hasPersonaScores || campaignPersonas.length > 0);
   const showPersonas = !showPersonaScores && p.roleClassification?.length > 0;
 
+  // companyRef is populated by the API; a bare id means it was never resolved.
+  const company = p.companyRef && typeof p.companyRef === 'object' ? p.companyRef : null;
+  const companyUnverified = Boolean(
+    company?.needsReview || ['low', 'none'].includes(p.companyLinkConfidence)
+  );
+
   // Rendered inside whichever of the two blocks is showing.
   const campaignFitBlock = p.compatibilityScore != null && (
     <div className="mb-4">
@@ -470,6 +486,117 @@ export default function ProspectDetailPage() {
 
         {/* ── LEFT COLUMN ──────────────────────────────────────────────── */}
         <div className="lg:col-span-2 space-y-4">
+
+          {/* ── Stale-content warning ──────────────────────────────────────
+              The profile summary, persona reasoning and outreach below were
+              written against a company we have since corrected, so they may
+              describe the wrong business entirely. The text is kept (it is
+              still the best copy available) but must not read as current. */}
+          {(p.needsReenrichment || p.outreachStale) && (
+            <div className="bg-amber-950/40 border border-amber-800/70 rounded-xl p-4 flex items-start gap-3">
+              <AlertTriangle size={16} className="text-amber-400 mt-0.5 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="text-amber-200 text-sm font-semibold">This profile's AI text may be out of date</p>
+                <p className="text-amber-200/70 text-xs mt-1 leading-relaxed">
+                  {p.reenrichmentReason === 'company-reassigned-manually'
+                    ? 'The company was reassigned by hand. '
+                    : 'The linked company was corrected. '}
+                  The summary, persona reasoning and outreach below were generated before that and may refer to a
+                  different company. Re-run the pipeline to regenerate them.
+                </p>
+                <button
+                  onClick={() => rerunMutation.mutate()}
+                  disabled={rerunMutation.isPending || isProcessing}
+                  className="mt-2.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-amber-900/60 hover:bg-amber-900 text-amber-100 border border-amber-700/70 transition disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  <RefreshCw size={11} className={rerunMutation.isPending ? 'animate-spin' : ''} />
+                  Re-run pipeline
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Company ────────────────────────────────────────────────────
+              The page never showed which Company record was linked, so a
+              prospect could sit against a same-named but unrelated business
+              with nothing on screen to reveal it. */}
+          {company && (
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+              <div className="flex items-start justify-between gap-3 mb-3">
+                <div className="min-w-0">
+                  <h3 className="text-white font-semibold flex items-center gap-2">
+                    <Building2 size={16} className="text-indigo-400" />
+                    <button
+                      onClick={() => navigate(`/companies/${company._id}`)}
+                      className="hover:text-indigo-300 transition truncate"
+                    >
+                      {company.name}
+                    </button>
+                  </h3>
+                  {/* The domain is what actually distinguishes two companies
+                      sharing a name, so it is shown, not hidden. */}
+                  <p className="text-slate-500 text-xs mt-0.5 flex items-center gap-2 flex-wrap">
+                    {company.domain ? (
+                      <a
+                        href={company.website || `https://${company.domain}`}
+                        target="_blank" rel="noreferrer"
+                        className="text-indigo-400 hover:text-indigo-300 flex items-center gap-1"
+                      >
+                        {company.domain} <ExternalLink size={10} />
+                      </a>
+                    ) : (
+                      <span className="text-slate-600">no verified domain</span>
+                    )}
+                    {company.linkedinUrl && (
+                      <a
+                        href={company.linkedinUrl}
+                        target="_blank" rel="noreferrer"
+                        className="text-slate-500 hover:text-slate-300 flex items-center gap-1"
+                      >
+                        LinkedIn <ExternalLink size={10} />
+                      </a>
+                    )}
+                  </p>
+                </div>
+                {companyUnverified && (
+                  <span
+                    className="shrink-0 text-[11px] px-2 py-1 rounded-full bg-amber-900/50 text-amber-300 border border-amber-800 font-medium"
+                    title="We could not confirm which company this is — several may share this name."
+                  >
+                    Unverified
+                  </span>
+                )}
+              </div>
+
+              {companyUnverified && (
+                <p className="text-amber-200/70 text-xs mb-3 leading-relaxed">
+                  {p.companyLinkConfidence === 'none'
+                    ? 'More than one company on record shares this name and nothing on this profile says which one it is.'
+                    : 'This link was made on the company name alone. Confirm it on the company page before trusting the research below.'}
+                </p>
+              )}
+
+              {(company.industry || company.size || company.headquarters || company.founded) && (
+                <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-xs text-slate-400 mb-3">
+                  {company.industry && <span><span className="text-slate-600">Industry </span>{company.industry}</span>}
+                  {company.size && <span><span className="text-slate-600">Size </span>{company.size}</span>}
+                  {company.headquarters && <span><span className="text-slate-600">HQ </span>{company.headquarters}</span>}
+                  {company.founded && <span><span className="text-slate-600">Founded </span>{company.founded}</span>}
+                </div>
+              )}
+
+              {company.aiAnalysis?.summary && (
+                <p className="text-slate-300 text-sm leading-relaxed">{company.aiAnalysis.summary}</p>
+              )}
+
+              <p className="text-slate-600 text-[11px] mt-3">
+                {LINK_SOURCE_LABEL[p.companyLinkSource]
+                  ? `Linked via ${LINK_SOURCE_LABEL[p.companyLinkSource]}`
+                  : 'Linked before company verification existed — re-run to confirm which company this is'}
+                {company.aiAnalysis?.source === 'linkedin' && ' · researched from the company LinkedIn page'}
+              </p>
+            </div>
+          )}
 
           {/* ── User-provided description card (shown only when set) ───── */}
           {p.description && (
