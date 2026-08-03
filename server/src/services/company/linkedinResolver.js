@@ -40,6 +40,12 @@ const MAX_DOMAIN_CHECKS = 4;
 const findCandidates = async (company) => {
   const queries = [
     company.domainKey ? `"${company.domainKey}" site:linkedin.com/company` : null,
+    // A location qualifier is an X-ray-search narrowing technique: it cuts
+    // through generic-name collisions (many "Atlas"es, one "Atlas" in Austin)
+    // the same way the domain qualifier does. headquarters is only ever
+    // populated from a source that actually reports it (e.g. Company Finder
+    // import) — never guessed — so this is real signal when present.
+    company.headquarters ? `"${company.name}" "${company.headquarters}" site:linkedin.com/company` : null,
     `"${company.name}" site:linkedin.com/company`,
     `${company.name} company linkedin`,
   ].filter(Boolean);

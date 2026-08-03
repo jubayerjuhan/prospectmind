@@ -77,6 +77,12 @@ export const saveCompany = async (req, res) => {
     if (detail.github) sourceRefs.push({ source: 'github', url: detail.github });
     if (detail.discord) sourceRefs.push({ source: 'discord', url: detail.discord });
 
+    // Was scraped but previously discarded — useful as a query qualifier when
+    // later searching for this company's LinkedIn page (see linkedinResolver.js).
+    if (detail.location && !company.headquarters) {
+      company.headquarters = detail.location;
+    }
+
     company.sourceRefs.push(...sourceRefs);
     await company.save();
 
