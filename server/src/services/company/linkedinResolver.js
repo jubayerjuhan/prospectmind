@@ -16,10 +16,15 @@
 import Company from '../../models/Company.js';
 import { askClaude, AIFallbackRequiredError } from '../ai/claudeClient.js';
 import { searchGoogle } from '../pipeline/discovery.js';
-import { linkedinCompanyKey, linkedinCompanyUrl } from '../../utils/domains.js';
+import { scrapeLinkedInCompany } from '../scraper/linkedinCompanyScraper.js';
+import { linkedinCompanyKey, linkedinCompanyUrl, normalizeDomainKey } from '../../utils/domains.js';
 import { clipPromptText } from '../pipeline/profileSnapshot.js';
 
 const MIN_CONFIDENCE = 60;
+
+// Each check opens a real authenticated LinkedIn session — bounded to keep a
+// single resolution from taking minutes or hammering the shared login.
+const MAX_DOMAIN_CHECKS = 4;
 
 /**
  * Run every query and pool the results, rather than stopping at the first
@@ -122,6 +127,38 @@ Return JSON:
 };
 
 /**
+ * Mechanically confirm candidates by reading each one's own LinkedIn About
+ * page and comparing the website IT states to the domain we already trust.
+ *
+ * This exists because the AI's textual reasoning can confabulate: verifying
+ * "Assetize" (assetize.xyz), it picked an unrelated "assetize.today" company
+ * with the justification that the domain matched — but neither candidate's
+ * search snippet mentioned a domain at all. A scraped fact from the page
+ * itself can't be talked into agreeing with a domain it never states.
+ *
+ * @returns {Promise<{verified: string[], anyFetchSucceeded: boolean}>}
+ *   anyFetchSucceeded distinguishes "checked and none matched" (provably
+ *   wrong — reject) from "couldn't check any of them" (session likely down —
+ *   fall back to text-only verification instead of refusing outright).
+ */
+const domainVerifyCandidates = async (candidates, domainKey) => {
+  const verified = [];
+  let anyFetchSucceeded = false;
+
+  for (const url of candidates.slice(0, MAX_DOMAIN_CHECKS)) {
+    const key = linkedinCompanyKey(url);
+    const about = await scrapeLinkedInCompany(key);
+    if (!about || about.authFailed) continue;
+
+    anyFetchSucceeded = true;
+    const aboutDomain = about.domain || normalizeDomainKey(about.website);
+    if (aboutDomain && aboutDomain === domainKey) verified.push(url);
+  }
+
+  return { verified, anyFetchSucceeded };
+};
+
+/**
  * Find (or re-find, with force) this company's LinkedIn page and, once
  * confidently identified, persist it as the company's linkedinUrl — the
  * pre('validate') hook on Company derives linkedinKey from it.
@@ -149,19 +186,52 @@ export const resolveCompanyLinkedin = async (companyOrId, { callAI = askClaude, 
   let chosen = null;
   let confidence = 0;
   let reasoning = '';
+  let mechanicallyChecked = false;
 
-  if (candidates.length === 1) {
-    // A single hit from a name/domain-scoped search — same trust level
-    // discovery.js gives a lone person-profile match.
-    [chosen] = candidates;
-    confidence = 85;
-    reasoning = 'Single LinkedIn company match found via search';
-  } else {
-    const verified = await verifyWithAI(company, candidates, results, callAI);
-    if (verified.linkedinUrl && candidates.includes(verified.linkedinUrl) && verified.confidenceScore >= MIN_CONFIDENCE) {
-      chosen = verified.linkedinUrl;
-      confidence = verified.confidenceScore;
-      reasoning = verified.reasoning;
+  // Prefer mechanical proof (the candidate's own About page) over textual
+  // inference whenever we have a domain to check it against.
+  if (company.domainKey) {
+    const { verified, anyFetchSucceeded } = await domainVerifyCandidates(candidates, company.domainKey);
+    mechanicallyChecked = anyFetchSucceeded;
+
+    if (anyFetchSucceeded && verified.length === 0) {
+      // We read real About pages and NONE state our domain — each checked
+      // candidate is provably a different company. Falling back to a text
+      // guess here would just repeat the mistake this check exists to catch.
+      console.log(`[linkedinResolver] Checked candidate About page(s) for "${company.name}" — none state domain ${company.domainKey}`);
+      return company;
+    }
+
+    if (verified.length === 1) {
+      [chosen] = verified;
+      confidence = 100;
+      reasoning = `Confirmed via the page's own About section — stated website matches ${company.domainKey}.`;
+    } else if (verified.length > 1) {
+      const v = await verifyWithAI(company, verified, results, callAI);
+      if (v.linkedinUrl && verified.includes(v.linkedinUrl) && v.confidenceScore >= MIN_CONFIDENCE) {
+        chosen = v.linkedinUrl;
+        confidence = v.confidenceScore;
+        reasoning = v.reasoning;
+      }
+    }
+  }
+
+  // Text-only fallback: no domain to mechanically check against, or the
+  // LinkedIn session was down for every candidate so it couldn't be checked.
+  if (!chosen && !mechanicallyChecked) {
+    if (candidates.length === 1) {
+      // A single hit from a name/domain-scoped search — same trust level
+      // discovery.js gives a lone person-profile match.
+      [chosen] = candidates;
+      confidence = 85;
+      reasoning = 'Single LinkedIn company match found via search';
+    } else {
+      const v = await verifyWithAI(company, candidates, results, callAI);
+      if (v.linkedinUrl && candidates.includes(v.linkedinUrl) && v.confidenceScore >= MIN_CONFIDENCE) {
+        chosen = v.linkedinUrl;
+        confidence = v.confidenceScore;
+        reasoning = v.reasoning;
+      }
     }
   }
 
