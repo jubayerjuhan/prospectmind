@@ -128,6 +128,10 @@ const buildKnowledgeBlock = async (prospect, personaScoreEntry) => {
     .map((s) => `Person signal — ${s.name}: ${clipPromptText(s.result, 300)}`)
     .join('\n');
 
+  const userNotes = prospect.description?.trim()
+    ? `=== NOTES ABOUT THIS PROSPECT (from the user) ===\nThe user has saved background info and/or specific instructions for reaching this person. Follow any tone, language, or approach guidance exactly; otherwise treat it as verified context.\n${clipPromptText(prospect.description.trim(), 1500)}\n================================`
+    : '';
+
   return [
     `Profile: ${clipPromptText(JSON.stringify(snapshot), 2500)}`,
     personaScoreEntry?.score != null
@@ -135,6 +139,7 @@ const buildKnowledgeBlock = async (prospect, personaScoreEntry) => {
       : '',
     companyBlock,
     prospectSignals,
+    userNotes,
   ].filter(Boolean).join('\n\n');
 };
 
