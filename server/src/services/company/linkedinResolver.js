@@ -23,8 +23,17 @@ import { clipPromptText } from '../pipeline/profileSnapshot.js';
 const MIN_CONFIDENCE = 60;
 
 // Each check opens a real authenticated LinkedIn session — bounded to keep a
-// single resolution from taking minutes or hammering the shared login.
-const MAX_DOMAIN_CHECKS = 4;
+// single resolution from taking minutes or hammering the shared login. Kept
+// a bit above the number of query strategies below: each strategy can
+// contribute a junk candidate before a real match appears in a later one, and
+// checks are consumed in pool order, so too tight a cap can starve a real
+// match out of ever being checked.
+const MAX_DOMAIN_CHECKS = 6;
+
+/** "San Francisco, Seattle, London, ..." → "San Francisco". A source's full
+ *  location list quoted verbatim as one exact phrase matches nothing — only
+ *  the primary (first-listed) location is usable as an X-ray search term. */
+const primaryLocation = (headquarters = '') => headquarters.split(',')[0].trim();
 
 /**
  * Run every query and pool the results, rather than stopping at the first
@@ -45,7 +54,7 @@ const findCandidates = async (company) => {
     // the same way the domain qualifier does. headquarters is only ever
     // populated from a source that actually reports it (e.g. Company Finder
     // import) — never guessed — so this is real signal when present.
-    company.headquarters ? `"${company.name}" "${company.headquarters}" site:linkedin.com/company` : null,
+    company.headquarters ? `"${company.name}" "${primaryLocation(company.headquarters)}" site:linkedin.com/company` : null,
     `"${company.name}" site:linkedin.com/company`,
     `${company.name} company linkedin`,
   ].filter(Boolean);
