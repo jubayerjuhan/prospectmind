@@ -2,6 +2,7 @@ import Company from '../models/Company.js';
 import Prospect from '../models/Prospect.js';
 import { normalizeCompanyName, findOrCreateCompany } from '../services/company/companyService.js';
 import { analyzeCompany } from '../services/company/companyAnalyzer.js';
+import { findCompanyContacts } from '../services/company/contactFinder.js';
 import { detectCompanySignals } from '../services/pipeline/signalDetector.js';
 
 const DEFAULT_PAGE = 1;
@@ -230,6 +231,41 @@ export const detectSignalsHandler = async (req, res) => {
 
     const entries = await detectCompanySignals(company);
     res.json({ success: true, data: company, detected: entries.length });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// POST /api/companies/:id/find-contacts
+// Runs (or re-runs with force=true) the AI contact-finder agent over the
+// company's own website (homepage + a discovered contact/about/team page).
+export const findContactsHandler = async (req, res) => {
+  try {
+    const company = await Company.findOne({
+      _id: req.params.id,
+      organization: req.organization._id,
+    });
+
+    if (!company) {
+      return res.status(404).json({ success: false, message: 'Company not found.' });
+    }
+
+    if (!company.website) {
+      return res.status(409).json({
+        success: false,
+        code: 'NO_WEBSITE',
+        message: "Set this company's website before finding contacts.",
+      });
+    }
+
+    const force = req.body?.force === true || req.query.force === 'true';
+    const updated = await findCompanyContacts(company, { force });
+
+    res.json({
+      success: true,
+      data: updated,
+      found: updated?.contacts?.length || 0,
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

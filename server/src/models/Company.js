@@ -50,6 +50,22 @@ const sourceRefSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const companyContactSchema = new mongoose.Schema(
+  {
+    type: {
+      type: String,
+      enum: ['email', 'phone', 'twitter', 'linkedin', 'telegram', 'discord', 'github', 'person'],
+      required: true,
+    },
+    value: { type: String, required: true },
+    name: { type: String, default: '' }, // for a named person found on the site
+    role: { type: String, default: '' },
+    source: { type: String, default: 'website' },
+    detectedAt: { type: Date, default: Date.now },
+  },
+  { _id: false }
+);
+
 const companySchema = new mongoose.Schema(
   {
     organization: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization', required: true, index: true },
@@ -99,6 +115,9 @@ const companySchema = new mongoose.Schema(
     },
     signals: { type: [companySignalSchema], default: [] },
     sourceRefs: { type: [sourceRefSchema], default: [] },
+
+    contacts: { type: [companyContactSchema], default: [] },
+    contactsScannedAt: Date,
   },
   { timestamps: true }
 );
