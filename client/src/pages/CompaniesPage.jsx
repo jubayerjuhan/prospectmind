@@ -8,6 +8,46 @@ import {
 
 const PAGE_SIZE = 20;
 
+const AVATAR_COLORS = [
+  'bg-indigo-600', 'bg-violet-600', 'bg-sky-600', 'bg-emerald-600',
+  'bg-amber-600', 'bg-rose-600', 'bg-cyan-600', 'bg-fuchsia-600',
+];
+
+const colorForName = (name = '') => {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) | 0;
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+};
+
+const initialsForName = (name = '') =>
+  name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
+
+// Real favicon when we have a verified domain (Google's public favicon
+// service — no key needed, 404s with a placeholder for unknown domains,
+// which still trips the <img> onError so the fallback below takes over), a
+// colored initials tile otherwise. Local error state avoids a retry loop.
+function CompanyAvatar({ name, domain }) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const showImg = Boolean(domain) && !imgFailed;
+
+  return (
+    <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-slate-800 flex items-center justify-center">
+      {showImg ? (
+        <img
+          src={`https://www.google.com/s2/favicons?domain=${domain}&sz=64`}
+          alt=""
+          className="w-full h-full object-contain bg-white"
+          onError={() => setImgFailed(true)}
+        />
+      ) : (
+        <div className={`w-full h-full flex items-center justify-center text-white text-sm font-semibold ${colorForName(name)}`}>
+          {initialsForName(name)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function CompaniesPage() {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
@@ -79,6 +119,7 @@ export default function CompaniesPage() {
                 onClick={() => navigate(`/companies/${c._id}`)}
                 className="w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-slate-800/40 transition"
               >
+                <CompanyAvatar name={c.name} domain={c.domain} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="text-white text-sm font-medium truncate">{c.name}</span>

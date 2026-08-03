@@ -9,6 +9,7 @@ import personaRoutes from './personas.js';
 import playbookRoutes from './playbooks.js';
 import signalRoutes from './signals.js';
 import companyRoutes from './companies.js';
+import companyFinderRoutes from './companyFinder.js';
 import aiRoutes from './ai.js';
 
 const router = Router();
@@ -23,6 +24,7 @@ router.use('/personas', personaRoutes);
 router.use('/playbooks', playbookRoutes);
 router.use('/signals', signalRoutes);
 router.use('/companies', companyRoutes);
+router.use('/company-finder', companyFinderRoutes);
 router.use('/ai', aiRoutes);
 
 router.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));

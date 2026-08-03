@@ -4,8 +4,25 @@ import api from '../lib/api';
 import toast from 'react-hot-toast';
 import {
   ArrowLeft, Building2, Sparkles, Loader2, ExternalLink, Users, RefreshCw,
-  ChevronRight, Radar,
+  ChevronRight, Radar, Search, Mail, Phone, AtSign, Code2, MessageCircle, User,
 } from 'lucide-react';
+
+const CONTACT_ICON = {
+  email: Mail,
+  phone: Phone,
+  twitter: AtSign,
+  linkedin: ExternalLink,
+  telegram: MessageCircle,
+  discord: MessageCircle,
+  github: Code2,
+  person: User,
+};
+
+const contactHref = (contact) => {
+  if (contact.type === 'email') return `mailto:${contact.value}`;
+  if (contact.type === 'phone') return `tel:${contact.value}`;
+  return contact.value;
+};
 
 const STATUS_COLOR = {
   pending: 'bg-slate-700 text-slate-300',
@@ -42,6 +59,22 @@ export default function CompanyDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['company', id] });
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Signal detection failed.'),
+  });
+
+  const findContactsMutation = useMutation({
+    mutationFn: (force) => api.post(`/companies/${id}/find-contacts`, { force }),
+    onSuccess: (res) => {
+      const n = res.data?.found ?? 0;
+      toast.success(n > 0 ? `${n} contact(s) found.` : 'No contacts found on the website.');
+      queryClient.invalidateQueries({ queryKey: ['company', id] });
+    },
+    onError: (err) => {
+      if (err.response?.data?.code === 'NO_WEBSITE') {
+        toast.error("Set this company's website first.");
+      } else {
+        toast.error(err.response?.data?.message || 'Contact scan failed.');
+      }
+    },
   });
 
   if (isLoading) {
@@ -185,6 +218,65 @@ export default function CompanyDetailPage() {
         ) : (
           <p className="text-slate-500 text-sm">
             No signals detected yet. Signals you define in Settings will be detected here (hiring activity, funding, launches…).
+          </p>
+        )}
+      </div>
+
+      {/* Contacts */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-white font-semibold flex items-center gap-2">
+            <AtSign size={16} className="text-indigo-400" /> Contacts
+          </h3>
+          <button
+            type="button"
+            disabled={findContactsMutation.isPending || !company.website}
+            title={!company.website ? "Set this company's website first" : undefined}
+            onClick={() => findContactsMutation.mutate(Boolean(company.contactsScannedAt))}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 font-medium rounded-lg text-xs transition"
+          >
+            {findContactsMutation.isPending ? (
+              <Loader2 size={13} className="animate-spin" />
+            ) : (
+              <Search size={13} />
+            )}
+            {findContactsMutation.isPending ? 'Scanning…' : company.contactsScannedAt ? 'Re-scan' : 'Find contacts'}
+          </button>
+        </div>
+        {Array.isArray(company.contacts) && company.contacts.length > 0 ? (
+          <div className="space-y-2">
+            {company.contacts.map((c, i) => {
+              const Icon = CONTACT_ICON[c.type] || AtSign;
+              return (
+                <div key={i} className="flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+                  <Icon size={15} className="text-indigo-400 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    {c.name && (
+                      <p className="text-white text-sm font-medium truncate">
+                        {c.name}
+                        {c.role ? ` · ${c.role}` : ''}
+                      </p>
+                    )}
+                    <a
+                      href={contactHref(c)}
+                      target={c.type === 'email' || c.type === 'phone' ? undefined : '_blank'}
+                      rel="noreferrer"
+                      className="text-indigo-300 text-sm hover:underline truncate block"
+                    >
+                      {c.value}
+                    </a>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-slate-500 text-sm">
+            {company.contactsScannedAt
+              ? 'No contacts found on the website.'
+              : company.website
+              ? 'Scan the website to find contact emails and social profiles.'
+              : 'Set a website to enable contact scanning.'}
           </p>
         )}
       </div>
