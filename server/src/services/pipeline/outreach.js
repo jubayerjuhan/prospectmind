@@ -30,7 +30,7 @@ Positioning: community-powered recruiting, vetted talent, no upfront fee (pay on
 Key value props: access to hidden talent network, community recommendations, high signal.
 Tone: respect their time, lead with relevance, not a sales pitch.`;
 
-export const generateOutreachMessages = async (prospect, enrichedProfile, classification, scoring, customPrompt = '') => {
+export const generateOutreachMessages = async (prospect, enrichedProfile, classification, scoring) => {
   const isClient = classification.primaryAngle === 'client';
 
   // Resolve campaign-level settings
@@ -130,7 +130,7 @@ ${platformContext}
 ${companyIntel ? `\nCompany & signal intelligence (use for personalization when relevant):\n${companyIntel}\n` : ''}
 Available channels: ${availableChannels.join(', ')}
 
-${customPrompt ? `=== CUSTOM USER INSTRUCTIONS ===\nThe user has provided specific instructions for this message generation. You MUST follow these instructions for TONE, VOICE, and CONTENT — but they never override the structural/formatting rules below, even if the requested tone is casual:\n${customPrompt}\n================================\n` : ''}
+${prospect.description?.trim() ? `=== NOTES ABOUT THIS PROSPECT (from the user) ===\nThe user has saved background info and/or specific instructions for reaching this person. Follow any tone, language, or approach guidance exactly; otherwise treat it as verified context. This never overrides the structural/formatting rules below, even if the requested tone is casual:\n${prospect.description.trim()}\n================================\n` : ''}
 Rules for every message:
 1. Must NOT sound AI-generated
 2. Open with something specific to THEM (their work, project, recent activity)
