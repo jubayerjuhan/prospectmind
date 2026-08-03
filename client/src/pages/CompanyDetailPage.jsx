@@ -65,7 +65,8 @@ export default function CompanyDetailPage() {
     mutationFn: (force) => api.post(`/companies/${id}/find-contacts`, { force }),
     onSuccess: (res) => {
       const n = res.data?.found ?? 0;
-      toast.success(n > 0 ? `${n} contact(s) found.` : 'No contacts found on the website.');
+      const contactsMsg = n > 0 ? `${n} contact(s) found.` : 'No contacts found on the website.';
+      toast.success(res.data?.linkedinFound ? `${contactsMsg} LinkedIn page found.` : contactsMsg);
       queryClient.invalidateQueries({ queryKey: ['company', id] });
     },
     onError: (err) => {
@@ -75,6 +76,15 @@ export default function CompanyDetailPage() {
         toast.error(err.response?.data?.message || 'Contact scan failed.');
       }
     },
+  });
+
+  const findLinkedinMutation = useMutation({
+    mutationFn: (force) => api.post(`/companies/${id}/find-linkedin`, { force }),
+    onSuccess: (res) => {
+      toast.success(res.data?.found ? 'LinkedIn page found.' : 'No confident LinkedIn match found.');
+      queryClient.invalidateQueries({ queryKey: ['company', id] });
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'LinkedIn search failed.'),
   });
 
   if (isLoading) {
@@ -138,6 +148,30 @@ export default function CompanyDetailPage() {
               >
                 <ExternalLink size={12} /> Website
               </a>
+            )}
+            {company.linkedinUrl ? (
+              <a
+                href={company.linkedinUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1 text-slate-400 hover:text-indigo-300 transition"
+              >
+                <ExternalLink size={12} /> LinkedIn
+              </a>
+            ) : (
+              <button
+                type="button"
+                disabled={findLinkedinMutation.isPending}
+                onClick={() => findLinkedinMutation.mutate(false)}
+                className="flex items-center gap-1 text-slate-500 hover:text-indigo-300 disabled:opacity-40 transition"
+              >
+                {findLinkedinMutation.isPending ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <Search size={12} />
+                )}
+                {findLinkedinMutation.isPending ? 'Searching…' : 'Find LinkedIn'}
+              </button>
             )}
           </div>
         </div>

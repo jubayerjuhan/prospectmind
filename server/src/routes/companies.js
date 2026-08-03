@@ -4,6 +4,7 @@ import {
   analyzeCompanyHandler,
   detectSignalsHandler,
   findContactsHandler,
+  findLinkedinHandler,
   createCompany,
   deleteCompany,
   getCompanies,
@@ -22,6 +23,7 @@ router.patch('/:id', updateCompany);
 router.post('/:id/analyze', analyzeCompanyHandler);
 router.post('/:id/detect-signals', detectSignalsHandler);
 router.post('/:id/find-contacts', findContactsHandler);
+router.post('/:id/find-linkedin', findLinkedinHandler);
 router.delete('/:id', deleteCompany);
 
 export default router;

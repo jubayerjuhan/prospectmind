@@ -3,6 +3,7 @@ import Prospect from '../models/Prospect.js';
 import { normalizeCompanyName, findOrCreateCompany } from '../services/company/companyService.js';
 import { analyzeCompany } from '../services/company/companyAnalyzer.js';
 import { findCompanyContacts } from '../services/company/contactFinder.js';
+import { resolveCompanyLinkedin } from '../services/company/linkedinResolver.js';
 import { detectCompanySignals } from '../services/pipeline/signalDetector.js';
 
 const DEFAULT_PAGE = 1;
@@ -259,12 +260,49 @@ export const findContactsHandler = async (req, res) => {
     }
 
     const force = req.body?.force === true || req.query.force === 'true';
-    const updated = await findCompanyContacts(company, { force });
+    let updated = await findCompanyContacts(company, { force });
+
+    // The website scan often turns up no LinkedIn link at all — actively
+    // search for the company's LinkedIn page as a fallback when we still
+    // don't have one, rather than leaving it permanently unresolved.
+    let linkedinFound = false;
+    if (updated && !updated.linkedinKey) {
+      updated = (await resolveCompanyLinkedin(updated)) || updated;
+      linkedinFound = Boolean(updated.linkedinKey);
+    }
 
     res.json({
       success: true,
       data: updated,
       found: updated?.contacts?.length || 0,
+      linkedinFound,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// POST /api/companies/:id/find-linkedin
+// Actively searches for (and AI-verifies) this company's LinkedIn page when
+// it isn't already known. Run standalone, or automatically after find-contacts.
+export const findLinkedinHandler = async (req, res) => {
+  try {
+    const company = await Company.findOne({
+      _id: req.params.id,
+      organization: req.organization._id,
+    });
+
+    if (!company) {
+      return res.status(404).json({ success: false, message: 'Company not found.' });
+    }
+
+    const force = req.body?.force === true || req.query.force === 'true';
+    const updated = await resolveCompanyLinkedin(company, { force });
+
+    res.json({
+      success: true,
+      data: updated,
+      found: Boolean(updated?.linkedinKey),
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
