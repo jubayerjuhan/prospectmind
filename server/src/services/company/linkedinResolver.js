@@ -21,34 +21,38 @@ import { clipPromptText } from '../pipeline/profileSnapshot.js';
 
 const MIN_CONFIDENCE = 60;
 
-/** Dedupe Serper results down to unique LinkedIn company/showcase pages. */
-const extractCandidates = (results) => {
-  const byKey = new Map();
-  for (const r of results) {
-    if (!r.link) continue;
-    const key = linkedinCompanyKey(r.link);
-    if (!key || byKey.has(key)) continue;
-    byKey.set(key, linkedinCompanyUrl(key));
-  }
-  return [...byKey.values()];
-};
-
-/** Progressively looser queries, most specific (verified domain) first. */
+/**
+ * Run every query and pool the results, rather than stopping at the first
+ * strategy that returns anything. A quoted search for the exact display name
+ * (which for an imported company can be a verbose legal-sounding name like
+ * "Kraken Digital Asset Exchange") reliably surfaces data-broker DBA/alias
+ * listings that spell that name out verbatim — and NOT the real branded page,
+ * which just says "Kraken". Stopping early on that first hit meant the
+ * broader query that would have found the real page never even ran. Pooling
+ * candidates instead means a bad early match can't crowd out the real one —
+ * it just becomes one more (rejectable) option for the AI to weigh.
+ */
 const findCandidates = async (company) => {
-  const strategies = [
+  const queries = [
     company.domainKey ? `"${company.domainKey}" site:linkedin.com/company` : null,
     `"${company.name}" site:linkedin.com/company`,
     `${company.name} company linkedin`,
   ].filter(Boolean);
 
-  for (const query of strategies) {
+  const byKey = new Map();
+  const allResults = [];
+  for (const query of queries) {
     console.log(`[linkedinResolver] Search: ${query}`);
-    const results = await searchGoogle(query);
-    const candidates = extractCandidates(results);
-    if (candidates.length) return { candidates, results };
-    console.log('[linkedinResolver] ↳ no candidates — trying next strategy');
+    const results = await searchGoogle(query, { num: 8 });
+    allResults.push(...results);
+    for (const r of results) {
+      if (!r.link) continue;
+      const key = linkedinCompanyKey(r.link);
+      if (!key || byKey.has(key)) continue;
+      byKey.set(key, linkedinCompanyUrl(key));
+    }
   }
-  return { candidates: [], results: [] };
+  return { candidates: [...byKey.values()], results: allResults };
 };
 
 const verifyWithAI = async (company, candidates, searchResults, callAI) => {
@@ -57,7 +61,30 @@ You are given REAL Google search results pointing to LinkedIn company pages. Pic
 this exact company — not a similarly named, unrelated, or different-industry organization sharing
 the name. Do NOT invent or guess any URL; only select from the candidates list. Return null if none
 match confidently.
+
+Watch for these traps:
+- Slugs like "undisclosed_<n>" or pages whose title starts "Undisclosed" are data-broker/DBA listings
+  a third party created, NOT the company's own official page — even when their text repeats the
+  company's legal name verbatim. Prefer the page that is actually BRANDED as the company (its slug
+  and title are the company's own name, e.g. "kraken" / "krakenfx" for Kraken), not one that merely
+  mentions the company.
+- Company names imported from a directory are sometimes a verbose legal-style name (e.g. "Kraken
+  Digital Asset Exchange") rather than the brand the company is actually known by and listed under on
+  LinkedIn — don't penalize a candidate just for using a shorter/different-looking name if its content
+  (industry, described product, and especially its stated website) matches.
+- Snippets for real company pages usually state "Website: <domain>" — if a candidate's snippet gives a
+  website domain, treat that as strong evidence for or against, comparing it to the known domain above.
+
+Do NOT invent or guess; only select from the candidates list. Return null if none match confidently.
 Always return valid JSON.`;
+
+  // Duplicate hits across the pooled queries would just waste context.
+  const seenLinks = new Set();
+  const uniqueResults = searchResults.filter((r) => {
+    if (!r.link || seenLinks.has(r.link)) return false;
+    seenLinks.add(r.link);
+    return true;
+  });
 
   const userPrompt = `Company to identify:
 - Name: ${company.name}
@@ -69,7 +96,7 @@ LinkedIn company page candidates (real URLs from Google):
 ${candidates.map((u, i) => `${i + 1}. ${u}`).join('\n')}
 
 Search result snippets for context:
-${searchResults.slice(0, 6).map((r) => `- ${r.title || ''}: ${r.snippet || ''} (${r.link})`).join('\n')}
+${uniqueResults.slice(0, 15).map((r) => `- ${r.title || ''}: ${r.snippet || ''} (${r.link})`).join('\n')}
 
 Return JSON:
 {
