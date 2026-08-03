@@ -20,7 +20,6 @@ const LINK_SOURCE_LABEL = {
 };
 import EditProspectModal from '../components/prospects/EditProspectModal';
 import PersonaRadar from '../components/prospects/PersonaRadar';
-import MicButton from '../components/ui/MicButton';
 
 const ACTIVE_PIPELINE_STATUSES = ['pending', 'discovering', 'enriching', 'classifying', 'scoring', 'generating'];
 
@@ -194,7 +193,6 @@ export default function ProspectDetailPage() {
   const queryClient = useQueryClient();
   const [editingMsg, setEditingMsg] = useState(null);
   const [editText, setEditText]     = useState('');
-  const [customPrompt, setCustomPrompt] = useState('');
 
   const { data, isLoading } = useQuery({
     queryKey: ['prospect', id],
@@ -235,7 +233,7 @@ export default function ProspectDetailPage() {
   });
 
   const generateMutation = useMutation({
-    mutationFn: () => api.post(`/prospects/${id}/generate-messages`, { customPrompt }),
+    mutationFn: () => api.post(`/prospects/${id}/generate-messages`),
     onSuccess: () => {
       toast.success('Outreach messages generated!');
       queryClient.invalidateQueries(['prospect', id]);
@@ -1110,23 +1108,6 @@ export default function ProspectDetailPage() {
             )}
 
             <div className="mt-6 border-t border-slate-800 pt-6">
-              <div className="flex items-center justify-between mb-2">
-                <label className="block text-sm font-medium text-slate-300">Custom Generation Prompt (Optional)</label>
-                <MicButton
-                  disabled={generateMutation.isPending || isProcessing}
-                  onTranscript={(text) =>
-                    setCustomPrompt((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text))
-                  }
-                />
-              </div>
-              <textarea
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-slate-300 text-sm focus:outline-none focus:border-indigo-500 resize-none mb-3"
-                rows={3}
-                placeholder="e.g. Focus on their recent talk at EthCC and keep the tone very casual..."
-                value={customPrompt}
-                onChange={(e) => setCustomPrompt(e.target.value)}
-                disabled={generateMutation.isPending || isProcessing}
-              />
               <button
                 onClick={() => generateMutation.mutate()}
                 disabled={generateMutation.isPending || isProcessing}
