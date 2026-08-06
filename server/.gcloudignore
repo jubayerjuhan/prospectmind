@@ -1,0 +1,19 @@
+# Cloud Build source upload. Mirrors .dockerignore, which already keeps these
+# out of the image via `COPY . .` — this keeps them out of the staging bucket
+# too, and cuts the upload from ~128M to a few hundred KB.
+#
+# node_modules is safe to drop: the Dockerfile copies package*.json and runs
+# `npm ci` itself, so a local tree would only be overwritten (and it carries
+# Puppeteer's ~150M Chrome download).
+
+node_modules
+.env
+.env.*
+.env.save
+npm-debug.log
+.git
+.gitignore
+.DS_Store
+logs
+*.log
+scripts/*.log
