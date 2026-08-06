@@ -17,10 +17,18 @@ import Company from '../../models/Company.js';
 import { askClaude, AIFallbackRequiredError } from '../ai/claudeClient.js';
 import { searchGoogle } from '../pipeline/discovery.js';
 import { scrapeLinkedInCompany } from '../scraper/linkedinCompanyScraper.js';
-import { linkedinCompanyKey, linkedinCompanyUrl, normalizeDomainKey } from '../../utils/domains.js';
+import { linkedinCompanyKey, linkedinCompanyUrl, normalizeDomainKey, isSameBrandDomain } from '../../utils/domains.js';
+import { domainsResolveToSame } from '../../utils/domainRedirect.js';
 import { clipPromptText } from '../pipeline/profileSnapshot.js';
 
 const MIN_CONFIDENCE = 60;
+
+/**
+ * A brand-alias candidate (certik.org vs certik.com with no redirect between
+ * them) is weaker evidence than an exact or redirect-proven domain, so the AI
+ * has to be more sure before one is accepted.
+ */
+const MIN_ALIAS_CONFIDENCE = 75;
 
 // Each check opens a real authenticated LinkedIn session — bounded to keep a
 // single resolution from taking minutes or hammering the shared login. Kept
@@ -75,7 +83,21 @@ const findCandidates = async (company) => {
   return { candidates: [...byKey.values()], results: allResults };
 };
 
-const verifyWithAI = async (company, candidates, searchResults, callAI) => {
+/** Facts scraped from a candidate's own About page, for the AI prompt. */
+const aboutFactsBlock = (url, about) => {
+  if (!about) return '';
+  const facts = [
+    about.website ? `website ${about.website}` : '',
+    about.industry ? `industry ${about.industry}` : '',
+    about.headquarters ? `HQ ${about.headquarters}` : '',
+    about.size ? `size ${about.size}` : '',
+    about.founded ? `founded ${about.founded}` : '',
+  ].filter(Boolean).join(' · ');
+  const overview = about.description ? `\n  overview: ${clipPromptText(about.description, 400)}` : '';
+  return `- ${url}\n  ${facts}${overview}`;
+};
+
+const verifyWithAI = async (company, candidates, searchResults, callAI, { aboutByUrl = null, aliasMode = false } = {}) => {
   const systemPrompt = `You are a company-identity verification assistant.
 You are given REAL Google search results pointing to LinkedIn company pages. Pick the one that IS
 this exact company — not a similarly named, unrelated, or different-industry organization sharing
@@ -95,6 +117,16 @@ Watch for these traps:
 - Snippets for real company pages usually state "Website: <domain>" — if a candidate's snippet gives a
   website domain, treat that as strong evidence for or against, comparing it to the known domain above.
 
+${aliasMode ? `
+IMPORTANT — this is an alternate-domain decision. None of these candidates state the exact domain we
+hold for the company; each states a DIFFERENT domain that shares the same brand name (e.g. we know
+acme.org, the page states acme.com). A company routinely owns its brand across several TLDs and
+publishes only one of them, so this is often the same company — but two unrelated organizations can
+also hold the same brand under different TLDs. Decide from the scraped About facts below (industry,
+headquarters, size, founding year, overview) whether this page describes the SAME organization we
+know, not merely one with a similar-looking domain. If the facts contradict what we know, or say too
+little to tell, return null.
+` : ''}
 Do NOT invent or guess; only select from the candidates list. Return null if none match confidently.
 Always return valid JSON.`;
 
@@ -114,7 +146,10 @@ ${company.aiAnalysis?.summary ? `- Known summary: ${clipPromptText(company.aiAna
 
 LinkedIn company page candidates (real URLs from Google):
 ${candidates.map((u, i) => `${i + 1}. ${u}`).join('\n')}
-
+${aboutByUrl ? `
+Facts scraped from each candidate's own LinkedIn About page (authoritative — prefer these over snippets):
+${candidates.map((u) => aboutFactsBlock(u, aboutByUrl.get(u))).filter(Boolean).join('\n')}
+` : ''}
 Search result snippets for context:
 ${uniqueResults.slice(0, 15).map((r) => `- ${r.title || ''}: ${r.snippet || ''} (${r.link})`).join('\n')}
 
@@ -142,7 +177,7 @@ Return JSON:
 };
 
 /**
- * Mechanically confirm candidates by reading each one's own LinkedIn About
+ * Mechanically classify candidates by reading each one's own LinkedIn About
  * page and comparing the website IT states to the domain we already trust.
  *
  * This exists because the AI's textual reasoning can confabulate: verifying
@@ -151,13 +186,28 @@ Return JSON:
  * search snippet mentioned a domain at all. A scraped fact from the page
  * itself can't be talked into agreeing with a domain it never states.
  *
- * @returns {Promise<{verified: string[], anyFetchSucceeded: boolean}>}
+ * But an exact string match is too strict to be the only accept path. One
+ * company legitimately has several domains, and the one on LinkedIn need not
+ * be the one we hold: CertiK's page states certik.com while our record came
+ * from certik.org. So a non-identical domain is graded rather than discarded:
+ *
+ *   exact    the stated domain IS our domain — proof.
+ *   alias    the two provably serve one site (certik.org redirects to
+ *            certik.com) — also proof, and it catches rebrands where the
+ *            brands differ entirely (oldname.com → newname.io).
+ *   alias    same brand under a different TLD with no redirect between them —
+ *            a lead, not proof: unrelated owners can hold acme.com and
+ *            acme.org, so these go to the AI with the scraped facts attached.
+ *
+ * @returns {Promise<{exact: string[], alias: object[], aboutByUrl: Map, anyFetchSucceeded: boolean}>}
  *   anyFetchSucceeded distinguishes "checked and none matched" (provably
  *   wrong — reject) from "couldn't check any of them" (session likely down —
  *   fall back to text-only verification instead of refusing outright).
  */
 const domainVerifyCandidates = async (candidates, domainKey) => {
-  const verified = [];
+  const exact = [];
+  const alias = [];
+  const aboutByUrl = new Map();
   let anyFetchSucceeded = false;
 
   for (const url of candidates.slice(0, MAX_DOMAIN_CHECKS)) {
@@ -166,11 +216,21 @@ const domainVerifyCandidates = async (candidates, domainKey) => {
     if (!about || about.authFailed) continue;
 
     anyFetchSucceeded = true;
+    aboutByUrl.set(url, about);
+
     const aboutDomain = about.domain || normalizeDomainKey(about.website);
-    if (aboutDomain && aboutDomain === domainKey) verified.push(url);
+    if (!aboutDomain) continue;
+
+    if (aboutDomain === domainKey) {
+      exact.push(url);
+    } else if (await domainsResolveToSame(aboutDomain, domainKey)) {
+      alias.push({ url, aboutDomain, proof: 'redirect' });
+    } else if (isSameBrandDomain(aboutDomain, domainKey)) {
+      alias.push({ url, aboutDomain, proof: 'brand' });
+    }
   }
 
-  return { verified, anyFetchSucceeded };
+  return { exact, alias, aboutByUrl, anyFetchSucceeded };
 };
 
 /**
@@ -206,27 +266,55 @@ export const resolveCompanyLinkedin = async (companyOrId, { callAI = askClaude, 
   // Prefer mechanical proof (the candidate's own About page) over textual
   // inference whenever we have a domain to check it against.
   if (company.domainKey) {
-    const { verified, anyFetchSucceeded } = await domainVerifyCandidates(candidates, company.domainKey);
+    const { exact, alias, aboutByUrl, anyFetchSucceeded } = await domainVerifyCandidates(candidates, company.domainKey);
     mechanicallyChecked = anyFetchSucceeded;
 
-    if (anyFetchSucceeded && verified.length === 0) {
-      // We read real About pages and NONE state our domain — each checked
+    if (anyFetchSucceeded && exact.length === 0 && alias.length === 0) {
+      // We read real About pages and none state our domain, a domain that
+      // redirects to it, or even our brand under another TLD — each checked
       // candidate is provably a different company. Falling back to a text
       // guess here would just repeat the mistake this check exists to catch.
-      console.log(`[linkedinResolver] Checked candidate About page(s) for "${company.name}" — none state domain ${company.domainKey}`);
+      console.log(`[linkedinResolver] Checked candidate About page(s) for "${company.name}" — none state domain ${company.domainKey} or an equivalent of it`);
       return company;
     }
 
-    if (verified.length === 1) {
-      [chosen] = verified;
+    if (exact.length === 1) {
+      [chosen] = exact;
       confidence = 100;
       reasoning = `Confirmed via the page's own About section — stated website matches ${company.domainKey}.`;
-    } else if (verified.length > 1) {
-      const v = await verifyWithAI(company, verified, results, callAI);
-      if (v.linkedinUrl && verified.includes(v.linkedinUrl) && v.confidenceScore >= MIN_CONFIDENCE) {
+    } else if (exact.length > 1) {
+      const v = await verifyWithAI(company, exact, results, callAI, { aboutByUrl });
+      if (v.linkedinUrl && exact.includes(v.linkedinUrl) && v.confidenceScore >= MIN_CONFIDENCE) {
         chosen = v.linkedinUrl;
         confidence = v.confidenceScore;
         reasoning = v.reasoning;
+      }
+    } else if (alias.length) {
+      // No exact match, but at least one candidate states a domain that may be
+      // another face of ours. Redirect-proven ones are mechanical facts and
+      // are decided here; brand-only lookalikes need the AI to compare the
+      // scraped About facts against what we already know.
+      const redirectProven = alias.filter((a) => a.proof === 'redirect');
+
+      if (redirectProven.length === 1) {
+        const [match] = redirectProven;
+        chosen = match.url;
+        confidence = 95;
+        reasoning = `Confirmed via the page's own About section — stated website ${match.aboutDomain} and ${company.domainKey} resolve to the same site.`;
+      } else {
+        const pool = redirectProven.length > 1 ? redirectProven : alias;
+        const urls = pool.map((a) => a.url);
+        const v = await verifyWithAI(company, urls, results, callAI, { aboutByUrl, aliasMode: true });
+        const threshold = redirectProven.length > 1 ? MIN_CONFIDENCE : MIN_ALIAS_CONFIDENCE;
+
+        if (v.linkedinUrl && urls.includes(v.linkedinUrl) && v.confidenceScore >= threshold) {
+          chosen = v.linkedinUrl;
+          confidence = v.confidenceScore;
+          const picked = pool.find((a) => a.url === v.linkedinUrl);
+          reasoning = `${v.reasoning} (states ${picked.aboutDomain}, an alternate domain of ${company.domainKey})`;
+        } else {
+          console.log(`[linkedinResolver] Alternate-domain candidate(s) for "${company.name}" not confirmed as the same company — skipping`);
+        }
       }
     }
   }

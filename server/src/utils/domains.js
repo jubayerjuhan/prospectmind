@@ -117,6 +117,31 @@ export const domainFromEmail = (email = '') => {
 const compact = (s = '') => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
 
 /**
+ * The brand portion of a registrable domain — everything before the public
+ * suffix, compacted. 'certik.com' and 'certik.org' both → 'certik'.
+ */
+export const domainBrand = (domain = '') => compact(String(domain).split('.')[0]);
+
+/**
+ * True when two DIFFERENT registrable domains share one brand under different
+ * public suffixes (certik.org / certik.com, kiln.fi / kiln.com).
+ *
+ * A company routinely owns its brand across several TLDs and lists only one of
+ * them on LinkedIn, so the two are usually the same organization — but not
+ * always (unrelated owners can hold example.com and example.org), which is why
+ * callers must treat this as a candidate signal to corroborate, never as proof
+ * of identity on its own. The 4-character floor keeps generic short brands
+ * ("ai.com" / "ai.io") from matching anything.
+ */
+export const isSameBrandDomain = (a = '', b = '') => {
+  const da = String(a).toLowerCase();
+  const db = String(b).toLowerCase();
+  if (!da || !db || da === db) return false;
+  const brand = domainBrand(da);
+  return brand.length >= 4 && brand === domainBrand(db);
+};
+
+/**
  * True when a domain is the person's own name rather than their employer's
  * (e.g. farhadhossain.dev, or a domain matching their LinkedIn slug).
  * Mirrors the heuristic already used for personal sites in enrichment.js.
