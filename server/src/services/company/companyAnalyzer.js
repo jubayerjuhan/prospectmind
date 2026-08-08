@@ -15,6 +15,7 @@ import { askClaude, AIFallbackRequiredError } from '../ai/claudeClient.js';
 import { searchGoogle } from '../pipeline/discovery.js';
 import { scrapePage } from '../scraper/pageScraper.js';
 import { scrapeLinkedInCompany } from '../scraper/linkedinCompanyScraper.js';
+import { recordLinkedInAuthFailure } from '../scraper/linkedinSessionAlert.js';
 import { clipPromptText } from '../pipeline/profileSnapshot.js';
 import { registrableDomain, normalizeDomainKey } from '../../utils/domains.js';
 
@@ -67,6 +68,12 @@ const gatherContext = async (company) => {
         sourceRefs.push({ source: 'linkedin', url: about.linkedinUrl });
       } else if (about?.authFailed) {
         console.warn(`[companyAnalyzer] LinkedIn session dead — falling back to web for "${company.name}"`);
+        // Company analysis degrades to web research rather than failing, which
+        // means nothing else here would ever tell the user their session died —
+        // they'd just get quietly worse company data. Record it so the UI can.
+        await recordLinkedInAuthFailure('company-analysis').catch((e) =>
+          console.warn('[companyAnalyzer] Failed to record LinkedIn auth failure:', e.message)
+        );
         mode = company.domainKey || website ? 'domain' : 'name-only';
       }
     } catch (err) {

@@ -13,7 +13,7 @@ import { scrapeLinkedIn } from '../scraper/linkedinScraper.js';
 import { scrapePage } from '../scraper/pageScraper.js';
 import { clipPromptText } from './profileSnapshot.js';
 import { LinkedInAuthError } from '../../utils/pipelineErrors.js';
-import { notifyLinkedInSessionDead } from '../scraper/linkedinSessionAlert.js';
+import { notifyLinkedInSessionDead, recordLinkedInAuthFailure } from '../scraper/linkedinSessionAlert.js';
 import * as linkedinLiveLogin from '../scraper/linkedinLiveLogin.js';
 import { normalizeDomainKey } from '../../utils/domains.js';
 import { matchesAnchor, buildAnchor } from '../../utils/anchorMatch.js';
@@ -240,6 +240,11 @@ export const enrichProfile = async (
       + 'and the automatic browser-window recovery either timed out, was disabled, or could not run in this '
       + 'environment. In the server folder run "npm run linkedin:login", complete the LinkedIn challenge in the '
       + 'browser window, then re-run this prospect.';
+    // Surface it in the UI immediately — the email below is debounced to 6h and
+    // the user is most likely sitting on the page watching this run.
+    await recordLinkedInAuthFailure('prospect-enrichment').catch((e) =>
+      console.warn('[enrichment] Failed to record LinkedIn auth failure:', e.message)
+    );
     const alertSent = await notifyLinkedInSessionDead(prospect.organization).catch((e) => {
       console.warn('[enrichment] Failed to send LinkedIn session alert:', e.message);
       return false;

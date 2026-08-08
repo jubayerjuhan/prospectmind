@@ -17,6 +17,7 @@ import Company from '../../models/Company.js';
 import { askClaude, AIFallbackRequiredError } from '../ai/claudeClient.js';
 import { searchGoogle } from '../pipeline/discovery.js';
 import { scrapeLinkedInCompany } from '../scraper/linkedinCompanyScraper.js';
+import { recordLinkedInAuthFailure } from '../scraper/linkedinSessionAlert.js';
 import { linkedinCompanyKey, linkedinCompanyUrl, normalizeDomainKey, isSameBrandDomain } from '../../utils/domains.js';
 import { domainsResolveToSame } from '../../utils/domainRedirect.js';
 import { clipPromptText } from '../pipeline/profileSnapshot.js';
@@ -213,7 +214,17 @@ const domainVerifyCandidates = async (candidates, domainKey) => {
   for (const url of candidates.slice(0, MAX_DOMAIN_CHECKS)) {
     const key = linkedinCompanyKey(url);
     const about = await scrapeLinkedInCompany(key);
-    if (!about || about.authFailed) continue;
+    if (!about || about.authFailed) {
+      // A dead session here is invisible otherwise: anyFetchSucceeded stays
+      // false, the caller quietly drops to text-only verification, and that is
+      // exactly the weaker path this whole mechanical check exists to avoid.
+      if (about?.authFailed) {
+        await recordLinkedInAuthFailure('company-linkedin-search').catch((e) =>
+          console.warn('[linkedinResolver] Failed to record LinkedIn auth failure:', e.message)
+        );
+      }
+      continue;
+    }
 
     anyFetchSucceeded = true;
     aboutByUrl.set(url, about);

@@ -18,6 +18,17 @@ const linkedInSessionSchema = new mongoose.Schema(
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     lastVerifiedAt: Date,
     lastAlertSentAt: Date,
+    // Stamped every time a pipeline step actually hits the dead session. The
+    // client keys its blocking modal off this timestamp, so a fresh failure
+    // re-opens the modal even for a user who dismissed the previous one —
+    // `status` alone can't do that, since it stays 'dead' the whole time.
+    lastFailureAt: Date,
+    // Which step tripped it, so the modal can say what just broke rather than
+    // only that something did.
+    lastFailureContext: {
+      type: String,
+      enum: ['prospect-enrichment', 'company-analysis', 'company-linkedin-search', 'manual-revoke'],
+    },
   },
   { timestamps: true }
 );

@@ -7,6 +7,28 @@ import { sendLinkedInSessionExpiredEmail } from '../resend/emailService.js';
 const ALERT_DEBOUNCE_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 /**
+ * Record that a pipeline step just hit the dead LinkedIn session.
+ *
+ * Distinct from notifyLinkedInSessionDead: that one emails the owner and is
+ * debounced to 6h, which is right for an email and wrong for the UI — a user
+ * who dismissed the modal an hour ago and then starts a new run must see it
+ * again. So this is undebounced and writes a fresh `lastFailureAt` the client
+ * can compare against what it has already dismissed.
+ *
+ * Fire-and-forget by design: it must never turn a degraded enrichment into a
+ * failed one, so every caller should catch.
+ *
+ * @param {'prospect-enrichment'|'company-analysis'|'company-linkedin-search'} context
+ */
+export const recordLinkedInAuthFailure = async (context) => {
+  await LinkedInSession.findOneAndUpdate(
+    {},
+    { status: 'dead', lastFailureAt: new Date(), lastFailureContext: context },
+    { upsert: true }
+  );
+};
+
+/**
  * Notify the organization's owner that the shared LinkedIn session is dead
  * and automatic recovery couldn't fix it. Safe to call on every auth failure —
  * debounces itself via LinkedInSession.lastAlertSentAt.

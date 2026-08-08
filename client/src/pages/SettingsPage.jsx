@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
-import { Save, Settings, Shield, Zap, Loader2, KeyRound, RefreshCw, ChevronDown, Monitor, X } from 'lucide-react';
+import { Save, Settings, Shield, Zap, Loader2, KeyRound, RefreshCw, ChevronDown, Monitor, X, Unplug } from 'lucide-react';
 import RFB from '@novnc/novnc';
 import { useAuthStore } from '../stores/authStore';
 import PersonasSettings from '../components/settings/PersonasSettings';
@@ -33,6 +33,9 @@ export default function SettingsPage() {
   const [liAt, setLiAt] = useState('');
   const [jsessionId, setJsessionId] = useState('');
   const [showJsessionField, setShowJsessionField] = useState(false);
+  // Disconnecting drops a cookie jar that can't be restored, so it takes a
+  // second, deliberate click rather than firing straight off the first one.
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
 
   const linkedInSessionQuery = useQuery({
     queryKey: ['organization', 'linkedin-session'],
@@ -50,6 +53,18 @@ export default function SettingsPage() {
     },
     onError: (err) => {
       toast.error(err.response?.data?.message || 'Failed to refresh LinkedIn session.');
+    },
+  });
+
+  const disconnectSessionMutation = useMutation({
+    mutationFn: () => api.delete('/organization/linkedin-session'),
+    onSuccess: () => {
+      toast.success('LinkedIn session disconnected.');
+      setConfirmDisconnect(false);
+      queryClient.invalidateQueries(['organization', 'linkedin-session']);
+    },
+    onError: (err) => {
+      toast.error(err.response?.data?.message || 'Failed to disconnect LinkedIn session.');
     },
   });
 
@@ -390,6 +405,60 @@ export default function SettingsPage() {
                 </div>
               )}
             </div>
+
+            {/* Disconnect — hidden entirely when there's no session to revoke */}
+            {linkedInSessionQuery.data?.status === 'active' && (
+              <div className="border-t border-slate-800 pt-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-white text-sm font-medium flex items-center gap-2">
+                      <Unplug size={15} className="text-red-400" />
+                      Disconnect session
+                    </p>
+                    <p className="text-slate-500 text-xs mt-0.5 leading-relaxed">
+                      Drops the stored cookies so the scraper can no longer act as this LinkedIn
+                      account. Prospect enrichment will fail and company enrichment will fall back to
+                      web-only research until you connect a new session. This can't be undone —
+                      reconnecting means pasting a fresh <code className="bg-slate-800 px-1 rounded">li_at</code>{' '}
+                      or using Live Login.
+                    </p>
+                  </div>
+                  {confirmDisconnect ? (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDisconnect(false)}
+                        className="px-3 py-2 text-slate-500 hover:text-slate-300 text-sm transition"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        disabled={disconnectSessionMutation.isPending}
+                        onClick={() => disconnectSessionMutation.mutate()}
+                        className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white font-medium rounded-lg text-sm transition"
+                      >
+                        {disconnectSessionMutation.isPending ? (
+                          <Loader2 size={15} className="animate-spin" />
+                        ) : (
+                          <Unplug size={15} />
+                        )}
+                        Confirm disconnect
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDisconnect(true)}
+                      className="shrink-0 flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-red-950/40 border border-slate-700 hover:border-red-900/60 text-slate-200 hover:text-red-300 font-medium rounded-lg text-sm transition"
+                    >
+                      <Unplug size={15} />
+                      Disconnect
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

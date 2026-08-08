@@ -2,6 +2,7 @@ import { Outlet, Navigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
 import Sidebar from './Sidebar';
 import LinkedInSessionBanner from './LinkedInSessionBanner';
+import LinkedInSessionModal from './LinkedInSessionModal';
 
 export default function AppLayout() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -12,10 +13,13 @@ export default function AppLayout() {
       <Sidebar />
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-6xl mx-auto px-8 py-8">
+          {/* Stays after the modal is dismissed — the modal is the one-time
+              interrupt, the banner is the standing reminder until it's fixed. */}
           <LinkedInSessionBanner />
           <Outlet />
         </div>
       </main>
+      <LinkedInSessionModal />
     </div>
   );
 }

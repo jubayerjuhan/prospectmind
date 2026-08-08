@@ -57,7 +57,7 @@ router.get('/usage', async (req, res) => {
 router.get('/linkedin-session', requireRole('owner', 'admin'), async (req, res) => {
   try {
     const session = await LinkedInSession.findOne({})
-      .select('status lastVerifiedAt updatedAt updatedBy')
+      .select('status lastVerifiedAt updatedAt updatedBy lastFailureAt lastFailureContext')
       .populate('updatedBy', 'name email');
     res.json({ success: true, data: session || { status: 'unset' } });
   } catch (error) {
@@ -83,6 +83,38 @@ router.post('/linkedin-session', requireRole('owner', 'admin'), async (req, res)
       return res.status(400).json({ success: false, message: result.message || 'That cookie did not authenticate.' });
     }
     res.json({ success: true, message: 'LinkedIn session refreshed and verified.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// DELETE /api/organization/linkedin-session — disconnect the shared session
+// Drops the stored cookie jar so the scraper has nothing to authenticate with.
+// Genuinely destructive: the jar is the self-refreshing session LinkedIn has
+// been rotating, and it cannot be restored — reconnecting means pasting a fresh
+// li_at or running Live Login. Use it to hand back access, or to force the
+// dead-session state deliberately.
+router.delete('/linkedin-session', requireRole('owner', 'admin'), async (req, res) => {
+  try {
+    // Stop the live-login browser too, if one is up — leaving it running against
+    // a session we just revoked would silently re-save a jar moments later.
+    await linkedinLiveLogin.stop().catch(() => null);
+
+    await LinkedInSession.findOneAndUpdate(
+      {},
+      {
+        cookies: null,
+        seedLiAt: null,
+        status: 'dead',
+        updatedBy: req.user._id,
+        lastFailureAt: new Date(),
+        lastFailureContext: 'manual-revoke',
+        $unset: { lastVerifiedAt: '' },
+      },
+      { upsert: true }
+    );
+
+    res.json({ success: true, message: 'LinkedIn session disconnected.' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

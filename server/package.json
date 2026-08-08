@@ -14,7 +14,10 @@
     "db:reresolve-companies": "node scripts/reresolve-companies.js",
     "test:company-identity": "node scripts/test-company-identity.mjs",
     "linkedin:login": "node scripts/linkedin-login.mjs",
-    "linkedin:cookie": "node scripts/linkedin-cookie.mjs"
+    "linkedin:cookie": "node scripts/linkedin-cookie.mjs",
+    "linkedin:status": "node scripts/simulate-linkedin-failure.js status",
+    "linkedin:simulate-down": "node scripts/simulate-linkedin-failure.js down",
+    "linkedin:simulate-up": "node scripts/simulate-linkedin-failure.js up"
   },
   "keywords": [],
   "author": "",
