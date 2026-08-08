@@ -3,29 +3,50 @@
 ## System Overview
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                    CLIENT (Vite + React)             │
-│  Login / Register → Dashboard → Prospects → Billing  │
-│  Port: 5173                                          │
-└────────────────────────┬────────────────────────────┘
-                         │ REST API (axios + auto token refresh)
-┌────────────────────────▼────────────────────────────┐
-│                 SERVER (Express + Node.js)           │
-│  /api/auth  /api/prospects  /api/billing  /api/org   │
-│  Port: 5000                                          │
-│                                                      │
-│  ┌──────────────────────────────────────────────┐   │
-│  │              AI Pipeline Runner              │   │
-│  │  discovery → enrichment → classify →         │   │
-│  │  score → outreach (all via Groq API)          │   │
-│  └──────────────────────────────────────────────┘   │
-└────────┬──────────────────────────┬─────────────────┘
-         │                          │
-┌────────▼──────────┐    ┌──────────▼──────────┐
-│  MongoDB Atlas    │    │  Groq API            │
-│  (Mongoose ODM)   │    │  llama-3.3-70b       │
-└───────────────────┘    └─────────────────────┘
+┌───────────────────────────────────────────────────────────────┐
+│                     CLIENT (Vite 6 + React 19)                │
+│  Dashboard · Prospects · Companies · Company Finder ·         │
+│  Campaigns · GitHub Talent Engine · Settings · Billing        │
+│  Port: 5173                                                   │
+└───────────────────────────┬───────────────────────────────────┘
+                            │ REST (axios + auto token refresh)
+┌───────────────────────────▼───────────────────────────────────┐
+│                   SERVER (Express 5 + Node 24)                │
+│  /api/auth /prospects /prospect-lists /companies              │
+│  /company-finder /personas /playbooks /signals                │
+│  /github-talent /organization /billing /ai                    │
+│  Port: 5000 (5001 in local dev)                               │
+│                                                               │
+│  ┌─────────────────────────────────────────────────────────┐  │
+│  │  Pipeline Runner (runner.js)                            │  │
+│  │  L1 discovery → L2 enrichment → L3 classify → L4 score  │  │
+│  │  → L4.5 persona score → L4.6 signals → L5 outreach      │  │
+│  └─────────────────────────────────────────────────────────┘  │
+└───┬─────────────┬──────────────┬─────────────┬────────────────┘
+    │             │              │             │
+┌───▼──────┐ ┌────▼──────┐ ┌─────▼──────┐ ┌────▼──────────────┐
+│ MongoDB  │ │ Redis     │ │ Gemini API │ │ External sources  │
+│ Atlas    │ │ (BullMQ)  │ │ (primary)  │ │ Serper · GitHub · │
+│ Mongoose │ │ job queue │ │ Groq: held │ │ LinkedIn (Pptr)   │
+└──────────┘ └───────────┘ └────────────┘ └───────────────────┘
 ```
+
+**Deployment:** Docker (`server/Dockerfile` + `docker-entrypoint.sh`) via Cloud Build.
+
+---
+
+## ⚠️ AI provider: Gemini, not Groq
+
+Despite the naming, **Gemini is the sole active AI provider.** `claudeClient.js` is a smart router:
+
+```js
+askAI(options, { preferredProvider })   // 'gemini' | 'groq' | 'auto'
+askClaude(options)                      // backward-compatible alias
+```
+
+`GROQ_ENABLED` inside `claudeClient.js` is currently **false**, so Groq is held back org-wide regardless of a campaign's stored `preferredAiModel`. The full multi-provider routing is left intact — flip the flag to re-enable Groq without other changes.
+
+**Always call AI through `askAI()` / `askClaude()`.** Never import a provider SDK directly.
 
 ---
 
@@ -33,40 +54,62 @@
 
 ```
 server/src/
-├── server.js                    # Entry point — connects DB, starts Express
-├── app.js                       # Express setup: CORS, helmet, rate limit, routes
-├── config/
-│   └── db.js                    # MongoDB connection
+├── server.js                 # Entry — connects DB, starts Express
+├── app.js                    # CORS, helmet, rate limit, route mounting
+├── config/db.js              # MongoDB connection
 ├── models/
-│   ├── User.js                  # email, password (bcrypt), org ref, role, refreshToken
-│   ├── Organization.js          # name, slug, owner, members, plan, usage, settings
-│   └── Prospect.js              # full prospect schema (raw input + enriched + messages)
-├── routes/
-│   ├── index.js                 # Mounts all route groups under /api
-│   ├── auth.js                  # POST /register /login /refresh /logout, GET /me
-│   ├── prospects.js             # CRUD + /bulk + /retry + message approval
-│   ├── billing.js               # /checkout /portal /webhook (Stripe)
-│   └── organization.js          # GET/PATCH org, GET usage
+│   ├── User.js               # email, password, org ref, role, refreshToken
+│   ├── Organization.js       # plan, usage, members, Stripe ids, settings
+│   ├── Prospect.js           # raw input + enriched profile + personaScores + signals + messages
+│   ├── Company.js            # first-class company (v2 Phase A)
+│   ├── ProspectList.js       # IS the campaign (v2 Phase D) — personas/playbooks/signals/sequence/outreach
+│   ├── Persona.js            # who we're scoring against (v2 Phase B)
+│   ├── Playbook.js           # business context, tone, CTA for outreach
+│   ├── Signal.js             # detectable condition + appliesTo (prospect | company)
+│   ├── GithubTalentCampaign.js
+│   └── LinkedInSession.js    # shared cookie jar + health/failure state
+├── routes/                   # index.js mounts all groups under /api
 ├── controllers/
-│   ├── authController.js        # register, login, refresh, logout, getMe
-│   └── prospectController.js    # getProspects, createProspect, bulkCreate, retry, approve
-├── middleware/
-│   └── auth.js                  # protect(), requirePlan(), requireRole()
+├── middleware/auth.js        # protect(), requirePlan(), requireRole()
 └── services/
     ├── ai/
-    │   ├── groqClient.js        # askGroq() — modular Groq wrapper, parses JSON response
-    │   └── claudeClient.js      # askClaude() — compatibility export over Groq
+    │   ├── claudeClient.js       # askAI()/askClaude() — provider router (see above)
+    │   ├── geminiClient.js       # askGemini() — ACTIVE provider
+    │   └── groqClient.js         # askGroq() — dormant behind GROQ_ENABLED
     ├── pipeline/
-    │   ├── runner.js            # Orchestrates all 5 layers, updates DB at each step
-    │   ├── discovery.js         # Layer 1: identity resolution
-    │   ├── enrichment.js        # Layer 2: enrichment + GitHub API
-    │   ├── classifier.js        # Layer 3: role classification
-    │   ├── scorer.js            # Layer 4: 0–100 compatibility score
-    │   └── outreach.js          # Layer 5: personalized message generation
-    ├── stripe/
-    │   └── stripeService.js     # createCheckoutSession, createBillingPortalSession, handleWebhook
-    └── resend/
-        └── emailService.js      # sendWelcomeEmail, sendOutreachEmail
+    │   ├── runner.js             # orchestrates every layer, updates DB per step
+    │   ├── queue.js              # BullMQ queue + worker (gated by RUN_WORKERS)
+    │   ├── discovery.js          # L1 identity resolution (Serper-backed)
+    │   ├── enrichment.js         # L2 enrichment (GitHub API + LinkedIn scrape)
+    │   ├── classifier.js         # L3 role classification
+    │   ├── scorer.js             # L4 legacy compatibility score
+    │   ├── personaScorer.js      # L4.5 per-Persona scoring
+    │   ├── signalDetector.js     # L4.6 prospect + company signal detection
+    │   ├── outreach.js           # L5 Playbook-driven message generation
+    │   ├── profileSnapshot.js
+    │   └── githubTalentQueue.js
+    ├── company/
+    │   ├── companyService.js     # findOrCreatePlaceholder, CRUD helpers
+    │   ├── companyResolver.js    # resolve a prospect's employer → Company
+    │   ├── companyAnalyzer.js    # website discovery → scrape → AI analysis (cached)
+    │   ├── linkedinResolver.js   # find + VERIFY a company's LinkedIn page
+    │   ├── contactFinder.js
+    │   └── atsBoards.js
+    ├── scraper/
+    │   ├── linkedinScraper.js          # profile scraping
+    │   ├── linkedinCompanyScraper.js   # company page scraping
+    │   ├── linkedinLiveLogin.js        # remote-driven Chrome login (VNC)
+    │   ├── linkedinSessionAlert.js     # dead-session recording + owner email
+    │   ├── companyContactScraper.js
+    │   ├── githubTalentScraper.js
+    │   └── pageScraper.js
+    ├── finder/
+    │   ├── sourceRegistry.js           # pluggable company sources
+    │   └── sources/cryptojobslist.js
+    ├── campaign/campaignExecutor.js
+    ├── cron/usageReset.js              # monthly usage reset (node-cron)
+    ├── stripe/stripeService.js
+    └── resend/emailService.js
 ```
 
 ---
@@ -75,27 +118,18 @@ server/src/
 
 ```
 client/src/
-├── App.jsx                      # Router setup, QueryClient, Toaster
-├── main.jsx                     # React DOM entry
-├── index.css                    # Tailwind v4 import + .input-field utility
-├── lib/
-│   └── api.js                   # Axios instance — auto-attaches token, handles 401 refresh
-├── stores/
-│   └── authStore.js             # Zustand (persisted) — user, org, tokens, isAuthenticated
+├── App.jsx                   # Router, QueryClient, Toaster
+├── lib/api.js                # Axios — attaches token, handles 401 refresh
+├── stores/authStore.js       # Zustand (persisted)
 ├── components/
-│   ├── layout/
-│   │   ├── AppLayout.jsx        # Protected route wrapper + sidebar layout
-│   │   └── Sidebar.jsx          # Nav links, org name, user avatar, logout
-│   └── prospects/
-│       ├── AddProspectModal.jsx  # Single prospect form modal
-│       └── BulkUploadModal.jsx  # CSV upload + preview modal
-└── pages/
-    ├── LoginPage.jsx             # Email + password login
-    ├── RegisterPage.jsx          # Name + org + email + password
-    ├── DashboardPage.jsx         # Stats cards, usage bar, recent prospects
-    ├── ProspectsPage.jsx         # Table with search/filter, live polling (8s)
-    ├── ProspectDetailPage.jsx    # Full profile + message approve/edit flow
-    └── BillingPage.jsx           # Plan cards + Stripe checkout + portal
+│   ├── layout/               # AppLayout, Sidebar, LinkedInSessionBanner, LinkedInSessionModal
+│   ├── prospects/            # Add/Edit/BulkUpload/ProspectList/CampaignImport modals, PersonaRadar
+│   ├── campaigns/            # CampaignCard, StrategyPicker, Strategy/Outreach tabs, ProspectTable
+│   ├── settings/             # Personas/Playbooks/Signals settings + PromptSettingsSection
+│   ├── companyFinder/        # CompanyFinderDetailModal
+│   ├── githubTalent/         # GteCampaignModal
+│   └── ui/                   # MicButton (voice input)
+└── pages/                    # see docs/features/frontend.md for the route table
 ```
 
 ---
@@ -103,18 +137,22 @@ client/src/
 ## Data Flow: Adding a Prospect
 
 ```
-1. User submits form (AddProspectModal)
-2. POST /api/prospects → prospectController.createProspect()
-3. Check org.canAddProspect() → 403 if over limit
-4. Prospect saved to MongoDB with status: "pending"
-5. runPipeline(prospect._id) fired async (no await)
-6. Response 201 returned to frontend immediately
-7. Pipeline runs in background:
-   pending → discovering → enriching → classifying → scoring → generating → ready
-8. Frontend polls GET /api/prospects every 8 seconds
-9. Status updates appear in real time in the table
-10. On "ready": user opens detail page, reviews messages, approves/edits
+1. User submits AddProspectModal
+2. POST /api/prospects → checks org.canAddProspect() → 403 LIMIT_REACHED if over
+3. Prospect saved with pipelineStatus: "pending"
+4. Job enqueued on BullMQ pipelineQueue (concurrency 1)
+5. 201 returned immediately
+6. Worker runs the pipeline, updating pipelineStatus at each layer:
+     pending → discovering → enriching → classifying → scoring → ready
+   The company link happens AFTER Layer 2, since enrichment is the only
+   step that can identify the real employer. Company analysis + company
+   signal detection are chained onto that link in the background.
+7. Frontend polls and reflects status live
+8. Outreach (L5) is deliberately NOT auto-run — messages are generated
+   on demand, per prospect or per campaign, from stored knowledge
 ```
+
+`RUN_WORKERS=false` lets an instance serve HTTP without polling Redis — important because idle workers otherwise drain the Redis request quota.
 
 ---
 
@@ -122,49 +160,49 @@ client/src/
 
 ```
 Register/Login → { accessToken (15m), refreshToken (7d) }
-                         ↓
-               Stored in Zustand (persisted to localStorage)
-                         ↓
+        ↓  stored in Zustand (persisted to localStorage)
 Every request: Authorization: Bearer <accessToken>
-                         ↓
-If 401 + TOKEN_EXPIRED → api.js interceptor calls POST /auth/refresh
-                         ↓
-New tokens issued → retry original request transparently
+        ↓  on 401 + TOKEN_EXPIRED
+api.js interceptor → POST /auth/refresh → retry original request transparently
 ```
 
 ---
 
-## MongoDB Models Summary
+## Multi-tenancy rule
 
-### User
-`name, email, password(hashed), organization(ref), role(owner/admin/member), refreshToken, lastLogin`
-
-### Organization
-`name, slug, owner(ref), members[], plan(free/pro/enterprise), planStatus, stripeCustomerId, stripeSubscriptionId, usage.prospectsThisMonth, settings`
-
-### Prospect
-`organization(ref), firstName, lastName, company, typeHint, pipelineStatus, enrichedProfile{}, roleClassification[], compatibilityScore, scoreLabel, messages[], tags, isArchived`
+**Every DB query must be scoped to `organization: req.organization._id`.** The one deliberate exception is `LinkedInSession`, which is a single shared platform-level document (`findOne({})`), not per-org.
 
 ---
 
 ## Environment Variables
 
-| Variable | Used In | Required |
+| Variable | Used in | Required |
 |---|---|---|
 | `PORT` | server.js | No (default 5000) |
+| `NODE_ENV` | various | No |
 | `MONGODB_URI` | config/db.js | ✅ |
-| `JWT_SECRET` | authController.js | ✅ |
-| `JWT_REFRESH_SECRET` | authController.js | ✅ |
-| `JWT_EXPIRES_IN` | authController.js | No (default 15m) |
-| `JWT_REFRESH_EXPIRES_IN` | authController.js | No (default 7d) |
-| `GROQ_API_KEY` | services/ai/groqClient.js | ✅ |
-| `GROQ_MODEL` | services/ai/groqClient.js | No |
-| `GROQ_FALLBACK_MODELS` | services/ai/groqClient.js | No |
-| `STRIPE_SECRET_KEY` | services/stripe/stripeService.js | Billing only |
-| `STRIPE_WEBHOOK_SECRET` | routes/billing.js | Billing only |
-| `STRIPE_PRO_PRICE_ID` | services/stripe/stripeService.js | Billing only |
-| `STRIPE_ENTERPRISE_PRICE_ID` | services/stripe/stripeService.js | Billing only |
-| `RESEND_API_KEY` | services/resend/emailService.js | Email only |
-| `RESEND_FROM_EMAIL` | services/resend/emailService.js | Email only |
-| `CLIENT_URL` | app.js (CORS) + emailService.js | ✅ |
-| `GITHUB_TOKEN` | services/pipeline/enrichment.js | No (increases rate limit) |
+| `CLIENT_URL` / `CLIENT_URLS` | app.js CORS, emailService | ✅ |
+| `JWT_SECRET` | authController | ✅ |
+| `JWT_REFRESH_SECRET` | authController | ✅ |
+| `JWT_EXPIRES_IN` / `JWT_REFRESH_EXPIRES_IN` | authController | No (15m / 7d) |
+| **AI** | | |
+| `GEMINI_API_KEY` | geminiClient | ✅ (active provider) |
+| `GEMINI_MODEL` / `GEMINI_FALLBACK_MODELS` / `GEMINI_TIMEOUT_MS` | geminiClient | No |
+| `GEMINI_TRANSCRIBE_MODEL` | aiController | No (voice input) |
+| `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` | geminiClient | Vertex only |
+| `GROQ_API_KEY` | groqClient | Only if `GROQ_ENABLED` |
+| `GROQ_MODEL` / `GROQ_FALLBACK_MODELS` / `GROQ_TIMEOUT_MS` / `GROQ_API_BASE_URL` | groqClient | No |
+| **Queue** | | |
+| `REDIS_URL` | pipeline/queue.js | ✅ |
+| `RUN_WORKERS` | pipeline/queue.js | No (`false` disables workers) |
+| **Enrichment sources** | | |
+| `SERPER_API_KEY` | discovery.js | Recommended (degrades gracefully) |
+| `GITHUB_TOKEN` | enrichment.js | No (60 → 5000 req/hr) |
+| `LINKEDIN_LI_AT` / `LINKEDIN_JSESSIONID` | scraper | Seed session |
+| `LINKEDIN_EMAIL` / `LINKEDIN_PASSWORD` | linkedinLiveLogin | Live login only |
+| `LINKEDIN_INTERACTIVE_LOGIN` | linkedinLiveLogin | No |
+| `LINKEDIN_USE_PROXY` / `WEBSHARE_PROXIES` | scraper | No |
+| **Billing / email** | | |
+| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | stripe | Billing only |
+| `STRIPE_PRO_PRICE_ID` / `STRIPE_ENTERPRISE_PRICE_ID` | stripe | Billing only |
+| `RESEND_API_KEY` / `RESEND_FROM_EMAIL` | emailService | Email only |

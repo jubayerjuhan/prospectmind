@@ -1,21 +1,29 @@
 # AI Pipeline
 
 **File:** `server/src/services/pipeline/runner.js` (orchestrator)
-**AI Client:** `server/src/services/ai/claudeClient.js` → Groq via `server/src/services/ai/groqClient.js`
+**Queue:** `server/src/services/pipeline/queue.js` — BullMQ on Redis, concurrency 1
+**AI Client:** `server/src/services/ai/claudeClient.js` → **Gemini** via `geminiClient.js`
 
 ---
 
 ## Overview
 
-The pipeline is triggered async after a prospect is created. It updates `pipelineStatus` in MongoDB at each step so the frontend can show live progress.
+Creating a prospect enqueues a pipeline job. The runner updates `pipelineStatus` in MongoDB at each step so the frontend can show live progress.
 
 ```
 Status progression:
-pending → discovering → enriching → classifying → scoring → generating → ready
-                                                                        ↘ failed (on error)
+pending → discovering → enriching → classifying → scoring → ready
+                                                          ↘ failed (on error)
+                                                          ↘ paused (on request)
 ```
 
-All 5 layers call `askClaude()` which sends prompts to Groq and parses the JSON response. If the primary model fails, the Groq client retries the configured fallback models before failing the pipeline. New code can call `askGroq()` directly when it needs to choose a different Groq model or generation settings.
+Layers call `askAI()` / `askClaude()`, which route to **Gemini** — Groq is held back behind the `GROQ_ENABLED` flag in `claudeClient.js`, so `preferredAiModel` on a campaign is currently ignored. If a model fails, the client retries its configured fallback chain before failing the pipeline. **Never import a provider SDK directly.**
+
+**Layer 5 does not run automatically.** Outreach is generated on demand — per prospect (`POST /prospects/:id/generate-messages`) or per campaign (`POST /prospect-lists/:id/outreach/generate`) — so a prospect reaches `ready` after scoring and signals.
+
+### Company linking
+
+The prospect→`Company` link happens **after Layer 2**, because enrichment is the only step that can identify the real employer. Company analysis and company-scoped signal detection are then chained onto that link in the background, so they never block the prospect pipeline.
 
 ---
 
@@ -54,7 +62,10 @@ All 5 layers call `askClaude()` which sends prompts to Groq and parses the JSON 
 **What it does:**
 1. Calls GitHub public API (`/users/:username` + `/repos`) — free, no auth required
 2. Extracts: repos, stars, top languages, recent repo names, bio, location
-3. Sends everything to Groq to synthesize a complete profile
+3. Scrapes the LinkedIn profile using the shared session (see `scraper/linkedinScraper.js`)
+4. Sends everything to the AI provider to synthesize a complete profile
+
+**Dead-session behavior:** if the shared LinkedIn session is expired, enrichment records the failure (`recordLinkedInAuthFailure`) so the UI can surface it, and degrades rather than silently producing a weaker profile.
 
 **Output:**
 ```json
@@ -70,7 +81,7 @@ All 5 layers call `askClaude()` which sends prompts to Groq and parses the JSON 
 }
 ```
 
-**⚠️ Production upgrade:** Add LinkedIn scraping (Apify), Hunter.io for email, ENS resolution.
+**✅ LinkedIn scraping is built in-house** (Puppeteer + a shared session), not via Apify. Still open: Hunter.io for verified email, ENS resolution.
 
 ---
 
@@ -136,18 +147,46 @@ All 5 layers call `askClaude()` which sends prompts to Groq and parses the JSON 
 
 **Score labels:** `strong_talent_match | high_potential_client | strategic_advisor | low_priority | not_relevant`
 
+> **Transitional:** this legacy score runs *alongside* Layer 4.5's persona scores rather than being replaced by them. Retiring `scorer.js` in favour of `personaScores[]` is a tracked cleanup — see `docs/status/plan-overview.md`.
+
 ---
 
-## Layer 5 — Outreach Generation
-**File:** `outreach.js`
+## Layer 4.5 — Persona Scoring *(v2 Phase C)*
+**File:** `personaScorer.js`
 
-**Input:** prospect + enriched profile + classification + scoring
+**Input:** prospect + enriched profile + the campaign's active `Persona` records
 
 **What it does:**
-- Generates personalized messages for each available channel
-- Uses recent activity, ecosystem alignment, specific projects as hooks
-- Adapts tone and CTA based on role (talent vs client vs hybrid)
-- Returns array of message objects with `status: "draft"`
+- Loads the campaign's selected Personas (empty selection = all active org Personas)
+- Scores the prospect against **each** Persona's user-authored prompt
+- Persists to `Prospect.personaScores[]`
+
+This is what replaces hardcoded Web3 prompts with user-defined targeting: an org authors "Founder hiring Web3 talent" in Settings, and every prospect gets scored against it. A research scientist can score high as generic talent but low against that Persona — which is the whole point.
+
+---
+
+## Layer 4.6 — Signal Detection *(v2 Phase C)*
+**File:** `signalDetector.js`
+
+Runs each active `Signal` whose `appliesTo` is `prospect`, persisting qualified results — **including honest negatives** — to `Prospect.signals[]`.
+
+Company-scoped Signals (`appliesTo: "company"`) run separately: chained onto company analysis, or on demand via `POST /companies/:id/detect-signals`.
+
+---
+
+## Layer 5 — Outreach Generation *(on demand, not auto-run)*
+**File:** `outreach.js`
+
+**Input:** prospect + enriched profile + classification + scoring + persona scores + signals + saved notes + the org's active **Playbook**
+
+**What it does:**
+- The active `Playbook` prompt drives business context, tone, and CTA (legacy hardcoded copy is only a fallback)
+- Company analysis and detected signals are fed in as context
+- Saved prospect notes are included — they are first-class input, not an ephemeral prompt
+- Generates personalized messages per available channel
+- Returns message objects with `status: "draft"`
+
+**Campaign generation** (`/prospect-lists/:id/outreach/generate`) additionally: builds a multi-step `sequence`, addresses each prospect as their **best-scoring campaign Persona**, falls back per step across channels (email → first available), skips non-`ready` prospects, and works from **stored knowledge only** — it never re-analyzes.
 
 **Message constraints enforced in prompt:**
 - Email: max 120 words
@@ -184,15 +223,17 @@ All prompts follow this structure:
 askClaude({
   systemPrompt: "You are a [role]. [context]. Always return valid JSON.",
   userPrompt:   "Here is the data: ... Return JSON in this shape: {...}",
-  model:        "llama-3.3-70b-versatile",
-  fallbackModels: ["openai/gpt-oss-120b", "qwen/qwen3-32b"],
   maxTokens:    2048
 })
+
+// Or, when the caller needs provider preference and wants to know what ran:
+const { result, providerUsed } = await askAI(options, { preferredProvider: 'gemini' });
 ```
 
 Key rules:
 - System prompt sets the persona and output format constraint
 - User prompt provides data + exact JSON schema expected
-- `askClaude()` auto-strips markdown code fences before JSON.parse
-- On parse failure, raw string is returned (for debugging)
+- The client auto-strips markdown code fences before `JSON.parse`
+- On parse failure, the raw string is returned (for debugging)
 - Temperature is set to `0.4` for consistent, structured output
+- Model/fallback selection comes from env (`GEMINI_MODEL`, `GEMINI_FALLBACK_MODELS`) — don't hardcode model ids at call sites

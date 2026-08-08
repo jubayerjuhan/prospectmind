@@ -48,11 +48,12 @@ requireRole('owner', 'admin') // Blocks if user.role not in allowed roles
 
 ---
 
-## Current Limitations (todos)
+## Current Limitations
 
-- No email verification flow yet
-- No password reset / forgot password
-- No team invite system (members must be added manually in DB)
-- No Google OAuth
+- ✅ Email verification — **built** (Resend, `/verify-email/:token`)
+- ✅ Forgot / reset password — **built** (`/forgot-password`, `/reset-password/:token`)
+- ⬜ Unverified users are **not** blocked from protected routes (deferred as optional for MVP)
+- ⬜ No team invite system (members must be added manually in the DB)
+- ⬜ No Google OAuth
 
-→ See `docs/status/todos.md` for priority
+→ See `docs/status/plan-overview.md` for priority

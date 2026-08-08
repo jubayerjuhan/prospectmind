@@ -115,4 +115,11 @@ New endpoints, all diff-aware (only touch fields that may have changed, not a fu
 
 ## Status
 
-Nothing here is implemented. See `docs/status/todos.md` — Priority 0 — for the ordered checklist once we're ready to start building.
+**Phases A–D are implemented and shipped. Phase E (traceability + refresh) is not started.**
+
+This document is the original HLD — kept as the *design rationale* record. It describes intent, not necessarily what the code does today. Two things diverged during implementation:
+
+- **Campaign is not a separate object.** `ProspectList` *is* the campaign (merged 2026-07-28); there is no `Campaign.targetList` ref.
+- **Company/Persona/Playbook/Signal landed additively** — legacy fields (`Prospect.company` string, `compatibilityScore`) still run alongside the new ones.
+
+→ For current state and the remaining work, see [`plan-overview.md`](plan-overview.md).

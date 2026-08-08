@@ -1,125 +1,111 @@
-# ProspectMind — Tasks & Roadmap (Single-Page Overview)
+# ProspectMind — Status & Plan
 
-> Consolidated view of **what to do next** (tasks) and **where we're headed** (roadmap).
-> Sources: [`todos.md`](todos.md) · [`roadmap.md`](roadmap.md) · [`redesign-v2.md`](redesign-v2.md)
-> Generated 2026-07-25. When these diverge, the source files are authoritative.
+> **Single source of truth** for what's built, what's in flight, and what's next.
+> Replaces the former `current.md`, `todos.md`, and `roadmap.md` (consolidated 2026-08-08 — they had drifted out of sync with each other and with the code).
+>
+> **Last verified against the codebase:** 2026-08-08 (commit `7498399`)
+> Architecture detail for the v2 redesign lives in [`redesign-v2.md`](redesign-v2.md).
 
 ---
 
-## 📋 Task List
+## Where the project stands
 
-### ⭐ Priority 0 — Architecture Redesign (stakeholder HLD)
-> Full plan + data models: [`redesign-v2.md`](redesign-v2.md). **In progress** — started with Persona (Phase B) as the lowest-risk, additive slice; see notes below the table.
+Phase 1 (MVP foundation) and the **entire v2 architecture redesign, Phases A–D**, are shipped and running. The app is deployed (Docker + Cloud Build), backed by MongoDB Atlas, with a BullMQ/Redis job queue and real LinkedIn scraping.
 
-| Phase | Tasks | Status |
+Active work is **company-identity accuracy** — making sure a company resolves to the *right* LinkedIn page — plus the operational UX around the shared LinkedIn session.
+
+---
+
+## ✅ Shipped
+
+### Core platform (Phase 1)
+Express 5 + Mongoose 8 API, Vite 6 + React 19 client, JWT multi-tenant auth (access 15m / refresh 7d), prospect CRUD + bulk CSV, Stripe billing plumbing, Resend transactional email, email verification, forgot/reset password, monthly usage reset cron, plan-limit upgrade prompts, pagination, and graceful pipeline-failure states.
+
+### v2 Redesign — Phases A–D
+
+| Phase | Status | What shipped |
 |---|---|---|
-| **A · Company module** | `Company` model + CRUD + `/api/companies` ✅; `Prospect.companyRef` added *alongside* the string (additive, no rename) + backfill (119 prospects → 61 companies) ✅; independent AI analysis (auto website discovery → scrape → summary/industry/size, cached, sourceRefs provenance) with `POST /:id/analyze` + auto-run on first pipeline link ✅; Companies page in sidebar ✅. Remaining: migrate string readers to the ref, then drop the string. | ✅ Done (additive; string migration deferred) |
-| **B · Settings (Persona/Playbook/Signal)** | All three models + shared CRUD factory + routes ✅; Settings UI cards for all three (Signals with applies-to) ✅; GoodHive defaults seeded across all orgs (persona + playbook + signal, `db:seed-settings`) ✅ | ✅ Done |
-| **C · Dynamic pipeline** | Persona scoring → `personaScores[]` ✅. Signal detection: active Signal prompts run per `appliesTo` — prospect signals in the pipeline (Layer 4.6 → `Prospect.signals[]`), company signals chained onto background company analysis + on-demand `POST /companies/:id/detect-signals`; qualified results incl. honest negatives ✅. Playbook-driven outreach: org's active Playbook prompt drives business context/tone/CTA (+ company analysis & signals fed in); legacy copy only as fallback ✅. Note: legacy `compatibilityScore`/`scorer.js` deliberately kept alongside (not yet replaced); playbook selection becomes per-campaign in Phase D. | ✅ Done |
-| **D · Campaign module** | **Unified into one Campaign object (2026-07-28).** The standalone `Campaign` model + `/api/campaigns` + the separate "Outreach" page are gone; `ProspectList` *is* the campaign and now carries `personas[]`/`playbooks[]`/`signals[]` (refs to the Settings records), the outreach `sequence`, and `outreach{status,playbook,results[]}` ✅. Generation at `POST /prospect-lists/:id/outreach/generate` builds per-prospect sequences from **stored knowledge only** (never analyzes; skips non-ready prospects; per-step channel fallback email → first available), addressing each prospect as their best-scoring campaign persona ✅. Pipeline honors the campaign's persona/signal selection (empty = all active) ✅. UI: campaign gallery + workspace with Prospects / Strategy / Outreach tabs ✅. Sending/scheduling of generated sequences is still future work (roadmap Phase 3). | ✅ Done |
-| **E · Traceability + refresh** | `source`/`confidence`/`lastRefreshedAt` on stored fields; diff-aware refresh endpoints (prospect, company, list, campaign) | ⬜ Not started |
+| **A · Company module** | ✅ Done | `Company` model, `/api/companies` CRUD, AI company analysis (website discovery → scrape → summary/industry/size, cached with `sourceRefs` provenance), Companies list + detail pages. `Prospect.companyRef` added *alongside* the legacy string (additive; 119 prospects → 61 companies backfilled). |
+| **B · Settings** | ✅ Done | `Persona` / `Playbook` / `Signal` models, shared CRUD factory, routes, and real Settings UI for all three (Signals carry an `appliesTo`). GoodHive defaults seeded org-wide via `db:seed-settings`. |
+| **C · Dynamic pipeline** | ✅ Done | Persona scoring → `personaScores[]` (Layer 4.5). Signal detection per `appliesTo` — prospect signals in-pipeline (Layer 4.6), company signals chained onto company analysis + on-demand. Playbook-driven outreach: the org's active Playbook drives business context, tone, and CTA. |
+| **D · Campaign module** | ✅ Done | Unified into one object (2026-07-28): `ProspectList` **is** the campaign, carrying `personas[]`/`playbooks[]`/`signals[]`, the outreach `sequence`, and `outreach{status,playbook,results[]}`. Generation builds per-prospect sequences from **stored knowledge only** — never re-analyzes. UI is a campaign gallery + workspace with Prospects / Strategy / Outreach tabs. |
+| **E · Traceability + refresh** | ⬜ **Not started** | `source`/`confidence`/`lastRefreshedAt` on stored fields; diff-aware refresh endpoints. The only untouched redesign phase. |
 
-**Progress notes (as of 2026-07-25):**
-- ✅ **Persona is first-class end-to-end** — authored in Settings → pipeline scores every prospect against each active Persona's prompt → `personaScores[]` persists. Verified on real prospects (a research scientist scores high as "talent" but low against a "Founder hiring Web3 talent" persona; a Web3 founder scores 95/100). Committed.
-- **Deliberately additive:** old `compatibilityScore` untouched, so nothing regresses. Persona scoring runs *alongside* it. A later step can promote persona scores to the primary signal once trusted.
-- **Not yet surfaced in the UI** — `personaScores` is stored but the Prospect detail page doesn't display it yet.
-- **Remaining greenfield:** Company module (A), Playbook + Signal models/UI (B), Signal-detection + Playbook-driven outreach (C), Campaign module (D), traceability/refresh (E).
+### Built beyond the original plan
 
-**Open questions (resolve before building):** multiple concurrent campaigns per prospect? drop vs. keep old classification fields during transition? Personas/Playbooks/Signals org-only or platform-level seed? does `Company` get its own plan limit? campaign targeting shape (`ProspectList` vs. ad-hoc/segment)? channel-availability enforcement when a prospect lacks a selected channel?
+These shipped after the v2 phases and were never in the roadmap:
 
-### 🔴 Priority 1 — Get It Running (blocking)
-> Baseline confirmed running 2026-07-25 (Mongo Atlas connected, both servers healthy, pipeline produces real Gemini output; 164 prospects in DB, 69 `ready`).
-- ✅ MongoDB running (Atlas)
-- ✅ `MONGODB_URI` set in `server/.env`
-- ✅ Both servers start clean (server :5001, client :5173)
-- ⬜ Register an account — test full register flow, org creation, JWT *(not re-verified via UI this session)*
-- ⬜ Add a prospect manually — verify save with `pipelineStatus: "pending"` *(not re-verified via UI this session)*
-- ✅ Pipeline runs through all stages (verified end-to-end via runner)
-- ✅ Verify AI output — real Gemini enrichedProfile/classification/score/personaScores (non-fallback), Serper discovery working with refreshed key
-
-### 🟡 Priority 2 — Polish Core Flow
-- ✅ Upgrade prompt/modal on plan limit
-- ✅ Loading skeleton on ProspectDetailPage during pipeline
-- ✅ Dashboard empty state + "Add your first prospect" CTA
-- ✅ `scoreLabel` badge on prospect detail
-- ✅ Pagination on prospects table
-- ✅ Graceful `failed` pipeline state in UI
-
-### 🟢 Priority 3 — Auth Completeness
-- ✅ Email verification on register (Resend)
-- ✅ Forgot / reset password flow
-- ⬜ Protect routes from unverified users (optional for MVP)
-
-### 🔵 Priority 4 — Billing Activation
-- ⬜ Create Stripe products + prices *(manual: Stripe dashboard)*
-- ⬜ Add price IDs to `.env` *(manual)*
-- ⬜ Install Stripe CLI + test webhook locally *(manual)*
-- ✅ Monthly usage reset
-- ✅ Plan badge + usage % in sidebar
-
-### 🟣 Priority 5 — Outreach Sending
-- ✅ "Send via Email" on approved messages
-- ✅ Message status → `sent`
-- ✅ Sent timestamp
+- **LinkedIn scraping, in-house** — `linkedinScraper`, `linkedinCompanyScraper`, `linkedinResolver`, plus **live remote login**: a real Chrome inside the production container driven by an owner/admin over VNC. The roadmap had assumed Apify.
+- **Company Finder** (`/api/company-finder`) — pluggable source registry (currently `cryptojobslist`), browse → detail → save into Companies, plus website contact scanning.
+- **GitHub Talent Engine** — `GithubTalentCampaign` model, dedicated scraper + queue, AI keyword generation, run/pause/resume, and two frontend pages.
+- **BullMQ + Redis queue** — was Phase 4 "Scale"; already live. Workers are gated behind `RUN_WORKERS` so only the designated instance polls Redis.
+- **Deployment** — Dockerfile, entrypoint, Cloud Build.
+- **Voice input** — `/api/ai/transcribe` + `MicButton`.
 
 ---
 
-## 🗺️ Roadmap
+## 🔄 In flight (uncommitted working tree)
 
-### Phase 1 — Foundation *(current)*
-Working end-to-end MVP: add prospects, get AI-generated outreach.
+**Dead-LinkedIn-session UX.** A coherent, near-complete feature sitting uncommitted (11 files, ~+800 lines):
 
-| Feature | Status |
+- `lastFailureAt` + `lastFailureContext` on `LinkedInSession`, so the alert re-opens per *failure event* rather than being dismissible forever
+- `LinkedInSessionModal.jsx` — blocking interrupt with per-context copy; the existing banner stays as the standing reminder
+- `DELETE /api/organization/linkedin-session` — deliberate disconnect
+- `scripts/simulate-linkedin-failure.js` + `linkedin:simulate-down|up|status` scripts to exercise it without waiting for a real expiry
+- A substantial `CompanyDetailPage.jsx` rework
+
+**Next step:** verify in-browser, then commit.
+
+---
+
+## 📋 What's next
+
+### 🔴 Priority 1 — Close out in-flight work
+- [ ] Verify + commit the dead-session UX above
+- [ ] Continue company-identity accuracy work (the last ~2 weeks of commits: About-page verification, candidate pooling, location qualifiers, domain equivalence)
+
+### 🟠 Priority 2 — Redesign Phase E (traceability + refresh)
+- [ ] `source` / `confidence` / `lastRefreshedAt` metadata on stored fields
+- [ ] Diff-aware refresh endpoints (prospect, company, list, campaign) — not full reruns
+
+### 🟡 Priority 3 — Retire the transitional scaffolding
+Deliberate debt from the additive migration, now safe to pay down:
+- [ ] Migrate `Prospect.company` string readers → `companyRef`, then drop the string
+- [ ] Promote `personaScores[]` to the primary signal and retire legacy `compatibilityScore` / `scorer.js`
+- [ ] Decide on Groq: either re-enable (`GROQ_ENABLED` in `claudeClient.js`) or remove the dormant routing
+
+### 🔵 Priority 4 — Billing activation *(manual, outside the codebase)*
+- [ ] Create Stripe products + prices in the dashboard
+- [ ] Add price IDs to `.env`
+- [ ] Install Stripe CLI + test the webhook locally
+
+### 🟣 Priority 5 — Campaign sending
+Single-message email send works end-to-end. Generated **sequences** still can't be sent or scheduled.
+- [ ] Send + schedule campaign outreach sequences
+- [ ] Reply detection (webhook/polling)
+- [ ] LinkedIn / Telegram sending channels
+
+---
+
+## 🗺️ Longer-term roadmap
+
+### Enrichment depth
+| Item | Priority |
 |---|---|
-| MERN stack setup | ✅ Done |
-| JWT multi-tenant auth | ✅ Done |
-| 5-layer Groq AI pipeline | ✅ Done |
-| Prospect management (CRUD + bulk) | ✅ Done |
-| Message generation + human review | ✅ Done |
-| Stripe billing (3 plans) | ✅ Done |
-| Resend email integration | ✅ Done |
-| First end-to-end test | 🔄 In progress |
-| Auth completeness (verify, reset) | ⬜ Todo |
-| Outreach email sending from UI | ⬜ Todo |
-
-### Phase 2 — Real Enrichment *(next)*
-Replace AI-inferred identity with real scraped data; make scores trustworthy.
-
-| Feature | Priority |
-|---|---|
-| Serper API — real Google results for identity resolution | 🔴 High |
-| LinkedIn scraping (Apify) | 🔴 High |
 | Hunter.io — verified email finding | 🟡 Medium |
 | ENS resolution (`.eth` → profile) | 🟡 Medium |
-| Twitter/X API — followers, recent tweets as context | 🟡 Medium |
-| GitHub token — 60 → 5000 req/hr | 🟢 Low |
-| Confidence-score cross-validation across platforms | 🟡 Medium |
+| Twitter/X API — followers, recent posts as context | 🟡 Medium |
+| Cross-platform confidence validation | 🟡 Medium |
+| `GITHUB_TOKEN` for 60 → 5000 req/hr | 🟢 Low |
 
-### Phase 3 — Sending & Tracking
-Full outreach automation with reply tracking.
+*Serper (real Google results) and LinkedIn scraping are **done** — see Shipped.*
 
-| Feature | Priority |
-|---|---|
-| Email sending from UI (Resend) | 🔴 High |
-| LinkedIn message sending (Phantombuster / native) | 🟡 Medium |
-| Telegram bot sending | 🟡 Medium |
-| Reply detection (webhook/polling) | 🟡 Medium |
-| Outreach sequences (follow-ups if no reply) | 🟢 Future |
-| Analytics dashboard (open/reply/conversion) | 🟢 Future |
+### Scale & intelligence
+Pipeline webhooks · team collaboration (comments, assignment) · CRM integrations (HubSpot, Pipedrive, Salesforce) · public API access for a developer tier · prospect deduplication across imports · white-label.
 
-### Phase 4 — Scale & Intelligence
-| Feature | Notes |
-|---|---|
-| Background job queue (BullMQ + Redis) | Replace inline async pipeline; retry + concurrency |
-| Pipeline webhooks | Notify external systems when a prospect is ready |
-| Team collaboration | Comments, assignment to teammates |
-| CRM integrations | HubSpot, Pipedrive, Salesforce |
-| API access | Developer tier via API key |
-| Custom scoring criteria | Orgs define their own dimensions |
-| Prospect deduplication | Detect + merge duplicates across imports |
-| White-label | Agencies resell under their brand |
+*Background job queue and custom scoring criteria are **done** — BullMQ, and Personas respectively.*
 
-### Phase 5 — Web3 Ecosystem Intelligence
+### Web3 ecosystem intelligence
 On-chain activity scoring · token-holder analysis · conference-speaker DB · podcast-guest tracking · DAO contributor graph · on-chain hiring signals.
 
 ### 🚫 Will NOT be built
@@ -127,5 +113,16 @@ Mass email/spam tools · fake profile generation · ToS-bypassing scraping · an
 
 ---
 
-## How the redesign maps onto the roadmap
-Priority 0 (the HLD redesign) reshapes the **foundation** the later roadmap phases build on: Phase 2's real enrichment sources become the *modular enrichment* jobs (§5.3), Phase 3's sending becomes *Campaign execution*, and Phase 4's custom scoring is largely subsumed by user-defined *Personas*. Do Priority 0 Phases A–E before layering Phase 2+ integrations on top.
+## Open questions
+
+- Can a prospect belong to multiple concurrent campaigns?
+- Are Personas/Playbooks/Signals org-only, or is there a platform-level default seed?
+- Does `Company` get its own usage/plan limit?
+- How should channel availability be enforced when a prospect lacks a campaign's selected channel?
+- Should unverified users be blocked from protected routes? (deferred as optional for MVP)
+
+---
+
+## Keeping this file honest
+
+See the "Documentation" section of `/CLAUDE.md`. In short: update this file in the same change that ships the behavior, and run `/sync-docs` periodically to audit docs against the code.

@@ -45,7 +45,9 @@ Outputs a fully enriched, classified, scored profile with ready-to-send messages
 
 ---
 
-## The 5-Layer AI Pipeline
+## The AI Pipeline
+
+> Originally 5 layers. The v2 redesign added **Layer 4.5 (Persona scoring)** and **Layer 4.6 (Signal detection)**, and made Layer 5 on-demand rather than automatic. See `docs/features/pipeline.md` for the current sequence.
 
 ```
 Input: Name + Company
