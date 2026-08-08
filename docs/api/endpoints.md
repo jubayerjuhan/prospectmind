@@ -45,6 +45,34 @@ All routes require auth. All queries scoped to `req.organization._id`.
 | POST | `/prospect-lists/:id/prospects` | 🔒 | Add prospects to a manual list. Body: `{ prospectIds: [] }` |
 | DELETE | `/prospect-lists/:id/prospects` | 🔒 | Remove prospects from a manual list. Body: `{ prospectIds: [] }` |
 
+## Companies — `/api/companies`
+
+All routes require auth. All queries scoped to `req.organization._id`.
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/companies` | 🔒 | List companies. Query: `?search=&page=&limit=` |
+| POST | `/companies` | 🔒 | Create (or reuse an existing match on the normalized name) |
+| GET | `/companies/:id` | 🔒 | Company detail with linked prospects |
+| PATCH | `/companies/:id` | 🔒 | Update company fields |
+| DELETE | `/companies/:id` | 🔒 | Delete a company |
+| POST | `/companies/:id/analyze` | 🔒 | AI company analysis. Body: `{ force? }` |
+| POST | `/companies/:id/detect-signals` | 🔒 | Run company Signals. Body: `{ signalIds? }` — see below |
+| POST | `/companies/:id/find-contacts` | 🔒 | Scan the company website for contacts. Body: `{ force? }` |
+| POST | `/companies/:id/find-linkedin` | 🔒 | Resolve the company's LinkedIn page. Body: `{ force? }` |
+
+**`detect-signals` selection.** `signalIds` is optional. Omitted, every *active*
+company Signal in the org runs — the same set the background pipeline uses.
+Supplied, only those Signals run, active or not: an explicit pick is treated as
+deliberate intent, matching how a campaign's selected Signals work. An empty
+array is rejected (400) rather than silently falling back to "run everything",
+since detection costs a search plus an AI call per signal. Selection is still
+scoped to the org, so a foreign id matches nothing.
+
+Returns `409 NO_VERIFIED_IDENTITY` when the company has neither a `domainKey`
+nor a `linkedinKey` — signals searched on a bare name can describe a namesake,
+and they get injected verbatim into outreach.
+
 ---
 
 ## Organization — `/api/organization`

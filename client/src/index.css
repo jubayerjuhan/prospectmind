@@ -18,3 +18,31 @@ body {
 .input-field {
   @apply w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-indigo-500 transition;
 }
+
+/* Entrance animation. Panels stagger in with an inline animation-delay so a
+   page reads top-to-bottom instead of snapping in all at once. */
+@keyframes pm-rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.animate-rise {
+  animation: pm-rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Slow drift for the ambient gradient behind page headers. */
+@keyframes pm-drift {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50%      { transform: translate3d(4%, -6%, 0) scale(1.12); }
+}
+
+.animate-drift {
+  animation: pm-drift 18s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise,
+  .animate-drift {
+    animation: none;
+  }
+}

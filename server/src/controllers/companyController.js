@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import Company from '../models/Company.js';
 import Prospect from '../models/Prospect.js';
 import { normalizeCompanyName, findOrCreateCompany } from '../services/company/companyService.js';
@@ -208,9 +209,24 @@ export const analyzeCompanyHandler = async (req, res) => {
 };
 
 // POST /api/companies/:id/detect-signals
-// Runs the org's active company-level Signals against this company (HLD §3.3).
+// Runs company-level Signals against this company (HLD §3.3). With a
+// `signalIds` body the caller picks exactly which ones run; without it, every
+// active company Signal in the org does (the pipeline's behaviour).
 export const detectSignalsHandler = async (req, res) => {
   try {
+    // Validated here rather than handed straight to the query: an unparseable
+    // id would make the $in match nothing, and "no signals defined" is a very
+    // different thing to report than "your request was malformed".
+    const { signalIds } = req.body || {};
+    if (signalIds !== undefined) {
+      if (!Array.isArray(signalIds) || signalIds.length === 0) {
+        return res.status(400).json({ success: false, message: 'Select at least one signal to detect.' });
+      }
+      if (!signalIds.every((id) => mongoose.Types.ObjectId.isValid(id))) {
+        return res.status(400).json({ success: false, message: 'One or more selected signals are invalid.' });
+      }
+    }
+
     const company = await Company.findOne({
       _id: req.params.id,
       organization: req.organization._id,
@@ -230,7 +246,9 @@ export const detectSignalsHandler = async (req, res) => {
       });
     }
 
-    const entries = await detectCompanySignals(company);
+    // Selection is still scoped to the org inside getActiveSignals, so an id
+    // belonging to another tenant simply matches nothing.
+    const entries = await detectCompanySignals(company, { selectedSignalIds: signalIds || [] });
     res.json({ success: true, data: company, detected: entries.length });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
