@@ -17,3 +17,6 @@ server/Invoice_June_2026.pdf
 
 # GCP service-account credentials
 server/.gcp/
+
+# Local-only Claude Code skills
+**/SKILL.md
