@@ -27,10 +27,17 @@ Do not duplicate or reinterpret the project context here. If `CLAUDE.md` and thi
 
 - Use ES Modules everywhere.
 - All AI calls must go through `server/src/services/ai/claudeClient.js`.
-- Use the shared `askClaude()` wrapper; do not import AI provider SDKs directly in feature code.
-- Scope tenant-owned database queries by organization.
+- Use the shared `askAI()` / `askClaude()` wrapper; do not import AI provider SDKs directly in feature code.
+- **Gemini is the active provider**, not Groq — see the AI provider note in `CLAUDE.md`.
+- Scope tenant-owned database queries by organization (`LinkedInSession` is the one deliberate exception).
 - Protect private API routes with the existing auth middleware.
 - Check plan limits before creating prospects.
+
+## Documentation Is Part Of The Change
+
+Docs in this repo have drifted badly before. When your change adds or alters a route, model, service, env var, pipeline layer, or frontend page, **update the matching doc in the same change** — see the "Documentation — keep it current" table in `CLAUDE.md` for which file.
+
+`docs/status/plan-overview.md` is the single source of truth for project status. Do not create new status files, and do not mark anything ✅ Done without verifying it in the code.
 
 ## Running Locally
 

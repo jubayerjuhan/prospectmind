@@ -4,7 +4,7 @@
 
 ## What it does
 
-ProspectMind takes minimal prospect data (name + company) and runs it through a 5-layer AI pipeline:
+ProspectMind takes minimal prospect data (name + company) and runs it through a multi-layer AI pipeline:
 
 | Layer | What |
 |---|---|
@@ -18,7 +18,9 @@ ProspectMind takes minimal prospect data (name + company) and runs it through a 
 
 - **Frontend**: Vite + React + TailwindCSS + React Query
 - **Backend**: Node.js + Express + MongoDB (Mongoose)
-- **AI**: Groq API (`llama-3.3-70b-versatile` by default)
+- **AI**: Google Gemini (via the `askAI()` router in `services/ai/claudeClient.js`; Groq support exists but is currently disabled)
+- **Queue**: BullMQ + Redis
+- **Scraping**: Puppeteer (LinkedIn profiles + company pages)
 - **Billing**: Stripe
 - **Email**: Resend
 
@@ -39,7 +41,7 @@ cd ../client && npm install
 ```bash
 cd server
 cp .env.example .env
-# Fill in your keys: MONGODB_URI, GROQ_API_KEY, STRIPE_*, RESEND_API_KEY
+# Fill in your keys: MONGODB_URI, REDIS_URL, GEMINI_API_KEY, SERPER_API_KEY, STRIPE_*, RESEND_API_KEY
 ```
 
 ### 3. Run
@@ -78,8 +80,8 @@ prospectmind/
         ├── routes/             # Express routes
         ├── controllers/        # Request handlers
         └── services/
-            ├── pipeline/       # 5-layer AI pipeline
-            ├── ai/             # Claude API client
+            ├── pipeline/       # AI pipeline layers + BullMQ queue
+            ├── ai/             # askAI() router → Gemini (Groq dormant)
             ├── stripe/         # Billing
             └── resend/         # Email
 ```

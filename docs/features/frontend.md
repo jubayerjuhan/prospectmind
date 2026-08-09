@@ -8,46 +8,78 @@
 
 | Route | Component | Auth | Description |
 |---|---|---|---|
-| `/login` | `LoginPage.jsx` | Public | Email + password login |
+| `/login` | `LoginPage.jsx` | Public | Email + password |
 | `/register` | `RegisterPage.jsx` | Public | Create account + org |
-| `/dashboard` | `DashboardPage.jsx` | 🔒 | Stats, usage bar, recent prospects |
-| `/prospects` | `ProspectsPage.jsx` | 🔒 | Table with search, filter, bulk import |
-| `/prospects/:id` | `ProspectDetailPage.jsx` | 🔒 | Full profile + message approval |
+| `/forgot-password` | `ForgotPasswordPage.jsx` | Public | Request reset email |
+| `/reset-password/:token` | `ResetPasswordPage.jsx` | Public | Set a new password |
+| `/verify-email/:token` | `VerifyEmailPage.jsx` | Public | Confirm email address |
+| `/dashboard` | `DashboardPage.jsx` | 🔒 | Stats, usage bar, recent prospects, empty state CTA |
+| `/prospects` | `ProspectsPage.jsx` | 🔒 | Table with search, filter, pagination, bulk import |
+| `/prospects/:id` | `ProspectDetailPage.jsx` | 🔒 | Profile, persona scores, signals, message approval/send |
+| `/companies` | `CompaniesPage.jsx` | 🔒 | Company list |
+| `/companies/:id` | `CompanyDetailPage.jsx` | 🔒 | Analysis, signals, contacts, LinkedIn resolution |
+| `/company-finder` | `CompanyFinderPage.jsx` | 🔒 | Browse external sources → save as Companies |
+| `/campaigns` | `CampaignsPage.jsx` | 🔒 | Gallery + workspace (Prospects / Strategy / Outreach tabs) |
+| `/github-talent-engine` | `GithubTalentEnginePage.jsx` | 🔒 | GTE campaign list |
+| `/github-talent-engine/:id` | `GithubTalentCampaignDetailPage.jsx` | 🔒 | Run/pause/resume + live progress |
 | `/billing` | `BillingPage.jsx` | 🔒 | Plan cards + Stripe checkout |
-| `/settings` | — | 🔒 | Placeholder (not built yet) |
+| `/settings` | `SettingsPage.jsx` | 🔒 | Personas, Playbooks, Signals, LinkedIn session |
 
-Protected routes are wrapped in `AppLayout.jsx` which redirects to `/login` if not authenticated.
+`/outreach` and `/outreach/:id` redirect to `/campaigns` — Outreach was merged into Campaign as one module (2026-07-28).
+
+Protected routes are wrapped in `AppLayout.jsx`, which redirects to `/login` when unauthenticated and hosts the LinkedIn session banner + modal.
+
+---
+
+## Component Map
+
+```
+components/
+├── layout/        AppLayout · Sidebar · LinkedInSessionBanner · LinkedInSessionModal
+├── prospects/     AddProspectModal · EditProspectModal · BulkUploadModal
+│                  ProspectListModal · CampaignImportModal · PersonaRadar
+├── campaigns/     CampaignCard · StrategyPicker · CampaignStrategyTab
+│                  CampaignOutreachTab · ProspectTable · prospectStatus.js
+├── settings/      PersonasSettings · PlaybooksSettings · SignalsSettings
+│                  PromptSettingsSection
+├── companyFinder/ CompanyFinderDetailModal
+├── githubTalent/  GteCampaignModal
+└── ui/            MicButton (voice input → /api/ai/transcribe)
+```
+
+### LinkedIn session surfacing — two components, deliberately
+
+`LinkedInSessionBanner` is the **standing reminder** that stays until the session is fixed. `LinkedInSessionModal` is the **one-time interrupt**, and its dismissal is keyed to the *failure event* (`lastFailureAt`), not a boolean — so a new failure re-opens it for a user who dismissed the previous one. A plain boolean would let someone dismiss it once and never be warned again.
 
 ---
 
 ## State Management
 
 ### Zustand — `authStore.js`
-Persisted to `localStorage` under key `prospectmind-auth`.
+Persisted to `localStorage` under `prospectmind-auth`.
 
 ```js
 { user, organization, accessToken, refreshToken, isAuthenticated }
 
-setAuth(user, accessToken, refreshToken)  // on login/register
-setTokens(accessToken, refreshToken)      // on token refresh
-updateUser(user)                          // on profile update
-logout()                                  // clears everything
+setAuth(user, accessToken, refreshToken)  // login/register
+setTokens(accessToken, refreshToken)      // token refresh
+updateUser(user)
+logout()
 ```
 
 ### React Query
-Used for all server data. Key patterns:
+All server data. Key patterns:
 
 ```js
-// List with polling (auto-refreshes every 8s for pipeline status)
+// List with polling (live pipeline status)
 useQuery({ queryKey: ['prospects', search, filter], refetchInterval: 8000 })
 
-// Single prospect (polls while pipeline is running)
+// Single prospect — polls only while processing
 useQuery({
   queryKey: ['prospect', id],
   refetchInterval: (data) => isProcessing(data) ? 5000 : false
 })
 
-// Mutations
 useMutation({ mutationFn, onSuccess: () => queryClient.invalidateQueries(...) })
 ```
 
@@ -58,43 +90,31 @@ useMutation({ mutationFn, onSuccess: () => queryClient.invalidateQueries(...) })
 Axios instance with:
 - Base URL: `VITE_API_URL` or `http://localhost:5000/api`
 - Request interceptor: attaches `Authorization: Bearer <accessToken>`
-- Response interceptor: on 401 `TOKEN_EXPIRED` → calls `/auth/refresh` → retries original request
+- Response interceptor: on 401 `TOKEN_EXPIRED` → `/auth/refresh` → retries the original request
 
 ---
 
 ## Styling
 
-- **TailwindCSS v4** — configured via `@tailwindcss/vite` plugin (no `tailwind.config.js` needed)
-- **Color palette:** `slate-950` bg, `slate-900` cards, `slate-800` inputs, `indigo-600` primary
-- **Dark mode only** — no light mode currently
-- **Reusable class:** `.input-field` defined in `index.css`
+- **TailwindCSS v4** via the `@tailwindcss/vite` plugin (no `tailwind.config.js`)
+- **Palette:** `slate-950` bg, `slate-900` cards, `slate-800` inputs, `indigo-600` primary
+- **Dark mode only**
+- Shared utilities live in `index.css` (e.g. `.input-field`)
 
 ---
 
 ## Component Patterns
 
-### Modals
-Full-screen overlay (`fixed inset-0 bg-black/60`), centered card. Close on button click.
-See `AddProspectModal.jsx` and `BulkUploadModal.jsx` as reference.
+**Modals** — full-screen overlay (`fixed inset-0 bg-black/60`) + centered card. See `AddProspectModal.jsx`.
 
-### Status badges
-```js
-const STATUS_COLOR = {
-  pending: 'bg-slate-700 text-slate-300',
-  ready: 'bg-green-900/50 text-green-400',
-  failed: 'bg-red-900/50 text-red-400',
-  // ...
-}
-```
+**Status badges** — campaign/prospect status colors are centralized in `components/campaigns/prospectStatus.js`; reuse it rather than redefining maps per page.
 
-### Toast notifications
-`react-hot-toast` — dark themed, top-right position. Use `toast.success()` and `toast.error()`.
+**Toasts** — `react-hot-toast`, dark themed, top-right.
 
 ---
 
 ## Current Limitations
 
-- Settings page is a placeholder
 - No mobile/responsive layout (desktop only)
-- No dark/light toggle (dark only)
-- No pagination UI on prospects table (limit=50 hardcoded)
+- No light-mode toggle
+- Prospect status polling is interval-based, not push

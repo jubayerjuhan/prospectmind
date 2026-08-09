@@ -62,12 +62,15 @@ When editing: user modifies text in a textarea, clicks "Approve" — the edited 
 
 ---
 
-## Sending (Future)
+## Sending
 
-Email sending is partially wired via Resend (`emailService.sendOutreachEmail`).
-LinkedIn / X / Telegram sending requires 3rd party integrations (not yet built).
+✅ **Single-message email sending works end-to-end** — `POST /prospects/:id/messages/:messageId/send` sends via Resend and marks the message `sent` with a timestamp.
 
-→ See `docs/status/roadmap.md` Phase 2 for sending integrations plan.
+⬜ **Campaign sequences cannot yet be sent or scheduled.** `POST /prospect-lists/:id/outreach/generate` produces multi-step sequences, but delivery for them isn't built.
+
+⬜ LinkedIn / X / Telegram sending requires third-party integrations (not built).
+
+→ See `docs/status/plan-overview.md` (Priority 5) for the sending plan.
 
 ---
 
