@@ -8,9 +8,14 @@ import Playbook from '../src/models/Playbook.js';
 import Signal from '../src/models/Signal.js';
 
 /**
- * Seed every organization with the GoodHive default Settings (HLD §3.4.4):
- * one Persona, one Playbook, one Signal — so day-1 behavior matches the
- * pre-redesign hardcoded prompts.
+ * Seed every organization with the GoodHive default Settings (HLD §3.4.4) —
+ * Personas, Playbooks and Signals — so day-1 behavior matches the pre-redesign
+ * hardcoded prompts.
+ *
+ * Two of the Playbooks exist for the company prospect finder rather than for
+ * outreach: it refuses to run without one, so a brand-new org would otherwise
+ * open the picker to an empty list. They state WHO to reach at a company, which
+ * is what the finder's query planner reads.
  *
  * Idempotent: skips anything that already exists (by name, per org). Safe to
  * re-run. Supersedes seed-default-personas.js (kept for compat).
@@ -125,6 +130,77 @@ Avoid:
 - Obvious AI wording
 
 Every message should naturally reference the prospect's background whenever relevant and finish with a simple call to action.`,
+    },
+  },
+  {
+    Model: Playbook,
+    label: 'Playbook',
+    doc: {
+      name: 'Sell GoodHive — reach the hiring decision-maker',
+      prompt: `You are working the GoodHive sales motion into a company that is building a technical team.
+
+GoodHive is a community-driven Web3 recruitment platform specialized in senior blockchain engineers and technical leaders.
+
+Our positioning:
+- Pay only if you hire.
+- Community-validated candidates.
+- Fast access to highly specialized Web3 talent.
+- Trusted by leading Web3 companies.
+
+WHO TO REACH AT THE COMPANY
+The people who can actually decide to bring in an external recruiting partner:
+- Founders, co-founders, CEOs and owners.
+- CTOs, VPs of Engineering, Heads of Engineering, Engineering Directors.
+- Heads of Talent, Talent Acquisition Leads, Technical Recruiters, People/HR leads.
+- Chief of Staff or COO where they own hiring.
+
+Prefer people with budget authority or direct ownership of hiring. Skip individual
+contributors, interns, and advisors — they cannot buy, and reaching them burns the account.
+
+The objective is to start a conversation, not to sell aggressively.
+
+The tone should be professional, friendly, short, personalized and curious.
+
+Avoid generic sales language, long introductions, overpromising, and obvious AI wording.
+
+Every message should naturally reference the prospect's background whenever relevant and
+finish with a simple call to action.`,
+    },
+  },
+  {
+    Model: Playbook,
+    label: 'Playbook',
+    doc: {
+      name: 'Recruit Web3 engineers — reach senior builders',
+      prompt: `You are sourcing senior technical talent on behalf of GoodHive's client companies.
+
+GoodHive places senior blockchain engineers and technical leaders with Web3 companies.
+We approach engineers about specific, concrete opportunities — never with generic
+"exciting opportunity" spam.
+
+WHO TO REACH AT THE COMPANY
+The people who actually build the product:
+- Senior, Staff and Principal Engineers.
+- Smart contract, protocol, blockchain and Solidity engineers.
+- Backend, infrastructure and platform engineers.
+- Engineering leads and tech leads who still write code.
+- Security engineers and auditors.
+
+Prefer engineers with demonstrable depth — shipped protocols, open-source work,
+audited contracts, conference talks. Skip recruiters, sales, marketing and
+non-technical roles entirely; they are the wrong side of this conversation.
+
+The objective is to open a low-pressure conversation about what they are building now
+and what would make them consider a move.
+
+The tone should be peer-to-peer, technically credible, short and specific.
+Engineers detect and discard recruiter boilerplate instantly.
+
+Avoid flattery, buzzwords, salary-first pitches, urgency tactics, and any claim about
+their work you cannot support from what you actually know about them.
+
+Reference something concrete about their work, then close with a genuinely low-commitment
+call to action.`,
     },
   },
   {

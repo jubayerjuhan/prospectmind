@@ -7,7 +7,7 @@ import {
   ArrowLeft, Building2, Sparkles, Loader2, ExternalLink, Users, RefreshCw,
   ChevronRight, Radar, Search, Mail, Phone, AtSign, Code2, MessageCircle, User,
   MapPin, CalendarDays, Globe, Briefcase, Check, Copy, AlertTriangle, Layers,
-  Clock, Plus, CheckSquare, Square,
+  Clock, Plus, CheckSquare, Square, Target, UserPlus, BookOpen,
 } from 'lucide-react';
 
 const CONTACT_ICON = {
@@ -343,6 +343,240 @@ function SignalPicker({ items, selected, onToggle, onSelectAll, onRun, onCancel,
   );
 }
 
+/* ── Prospect finder ──────────────────────────────────────────────── */
+
+/**
+ * Configure a prospect search for this company.
+ *
+ * A Playbook is mandatory: without one the search has no idea who it is looking
+ * for and would return the company's whole staff list. Personas are optional
+ * and additive — the Playbook says why we're approaching this company, the
+ * Personas narrow it to the roles worth approaching.
+ */
+function ProspectFinderPicker({
+  companyName, playbooks, personas, playbookId, onPlaybookChange,
+  selectedPersonaIds, onTogglePersona, onRun, onCancel, pending,
+}) {
+  const selectedPlaybook = playbooks.find((p) => p._id === playbookId);
+
+  if (playbooks.length === 0) {
+    return (
+      <div className="mb-4 rounded-xl border border-dashed border-slate-800 px-4 py-5 text-center">
+        <p className="text-sm text-slate-400">
+          A playbook tells the search what kind of people you want at {companyName}.
+        </p>
+        <Link
+          to="/settings"
+          className="mt-2 inline-flex items-center gap-1.5 text-xs text-indigo-400 transition hover:text-indigo-300"
+        >
+          <Plus size={12} /> Create one in Settings
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-4 rounded-xl border border-indigo-500/25 bg-indigo-500/[0.04] p-4">
+      <p className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400">Playbook</p>
+      <div className="space-y-1.5">
+        {playbooks.map((p) => {
+          const isSelected = p._id === playbookId;
+          return (
+            <button
+              key={p._id}
+              type="button"
+              onClick={() => onPlaybookChange(p._id)}
+              className={`flex w-full items-start gap-2.5 rounded-lg border p-2.5 text-left transition ${
+                isSelected
+                  ? 'border-indigo-500/50 bg-indigo-500/10'
+                  : 'border-slate-800 bg-slate-950/40 hover:border-slate-700'
+              }`}
+            >
+              <BookOpen size={15} className={`mt-0.5 shrink-0 ${isSelected ? 'text-indigo-400' : 'text-slate-600'}`} />
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-2">
+                  <span className={`truncate text-sm ${isSelected ? 'text-white' : 'text-slate-300'}`}>{p.name}</span>
+                  {p.isActive === false && (
+                    <span className="shrink-0 rounded-full bg-slate-800 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-slate-500">
+                      inactive
+                    </span>
+                  )}
+                </span>
+                <span className={`mt-0.5 block text-[11px] leading-relaxed text-slate-500 ${isSelected ? '' : 'line-clamp-1'}`}>
+                  {p.prompt}
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {personas.length > 0 && (
+        <>
+          <p className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wider text-slate-400">
+            Personas <span className="font-normal normal-case tracking-normal text-slate-600">— optional, narrows to specific roles</span>
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {personas.map((p) => {
+              const isSelected = selectedPersonaIds.includes(p._id);
+              return (
+                <button
+                  key={p._id}
+                  type="button"
+                  onClick={() => onTogglePersona(p._id)}
+                  title={p.prompt}
+                  className={`rounded-full px-2.5 py-1 text-[12px] ring-1 transition ${
+                    isSelected
+                      ? 'bg-indigo-500/15 text-indigo-200 ring-indigo-400/40'
+                      : 'bg-slate-950/40 text-slate-400 ring-slate-800 hover:text-slate-200 hover:ring-slate-700'
+                  }`}
+                >
+                  {p.name}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      <div className="mt-3.5 flex items-center justify-between gap-3 border-t border-slate-800/70 pt-3">
+        <Link to="/settings" className="text-[11px] text-slate-500 transition hover:text-indigo-300">
+          Manage in Settings
+        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-2.5 py-1.5 text-xs text-slate-500 transition hover:text-slate-300"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onRun}
+            disabled={pending || !selectedPlaybook}
+            className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {pending ? <Loader2 size={13} className="animate-spin" /> : <Target size={13} />}
+            {pending ? 'Searching…' : 'Find prospects'}
+          </button>
+        </div>
+      </div>
+
+      {pending && (
+        <p className="mt-2.5 text-[11px] leading-relaxed text-slate-500">
+          Planning searches, scanning results, and checking each person against the playbook. This takes a moment.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Review what the search found before anything becomes a prospect.
+ *
+ * Importing is what costs the plan limit and starts the enrichment pipeline, so
+ * the user picks — nothing here is a prospect until they say so.
+ */
+function CandidateReview({ candidates, selected, onToggle, onSelectAll, onImport, onDismiss, pending, playbookName, lastRunAt }) {
+  const allSelected = candidates.length > 0 && selected.length === candidates.length;
+
+  return (
+    <div className="mb-4 rounded-xl border border-emerald-500/25 bg-emerald-500/[0.04] p-4">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-300">
+            {candidates.length} candidate{candidates.length === 1 ? '' : 's'} found
+          </p>
+          <p className="mt-1 text-[11px] text-slate-500">
+            {playbookName ? `via "${playbookName}"` : 'Not yet imported'}
+            {lastRunAt && ` · ${new Date(lastRunAt).toLocaleString()}`}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => onSelectAll(!allSelected)}
+          className="shrink-0 text-[11px] text-slate-500 transition hover:text-indigo-300"
+        >
+          {allSelected ? 'Clear all' : 'Select all'}
+        </button>
+      </div>
+
+      <div className="space-y-1.5">
+        {candidates.map((c) => {
+          const fullName = `${c.firstName || ''} ${c.lastName || ''}`.trim();
+          const isSelected = selected.includes(c._id);
+          const Box = isSelected ? CheckSquare : Square;
+          const confidence = typeof c.confidence === 'number' ? Math.round(c.confidence * 100) : null;
+
+          return (
+            <div
+              key={c._id}
+              className={`flex items-start gap-2.5 rounded-lg border p-2.5 transition ${
+                isSelected ? 'border-indigo-500/50 bg-indigo-500/10' : 'border-slate-800 bg-slate-950/40'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => onToggle(c._id)}
+                className="flex min-w-0 flex-1 items-start gap-2.5 text-left"
+              >
+                <Box size={15} className={`mt-0.5 shrink-0 ${isSelected ? 'text-indigo-400' : 'text-slate-600'}`} />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-2">
+                    <span className={`truncate text-sm font-medium ${isSelected ? 'text-white' : 'text-slate-300'}`}>
+                      {fullName || 'Unnamed'}
+                    </span>
+                    {confidence != null && (
+                      <span className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-bold tabular-nums ring-1 ${scoreTier(confidence)}`}>
+                        {confidence}%
+                      </span>
+                    )}
+                  </span>
+                  {c.role && <span className="mt-0.5 block truncate text-xs text-slate-400">{c.role}</span>}
+                  {c.matchReason && (
+                    <span className="mt-1 block text-[11px] leading-relaxed text-slate-500">{c.matchReason}</span>
+                  )}
+                </span>
+              </button>
+              {c.linkedinUrl && (
+                <a
+                  href={c.linkedinUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  title="Open LinkedIn profile"
+                  className="shrink-0 rounded-md p-1.5 text-slate-500 transition hover:bg-slate-800 hover:text-indigo-300"
+                >
+                  <ExternalLink size={13} />
+                </a>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="mt-3.5 flex items-center justify-between gap-3 border-t border-slate-800/70 pt-3">
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="text-[11px] text-slate-500 transition hover:text-slate-300"
+        >
+          Dismiss results
+        </button>
+        <button
+          type="button"
+          onClick={onImport}
+          disabled={pending || selected.length === 0}
+          className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {pending ? <Loader2 size={13} className="animate-spin" /> : <UserPlus size={13} />}
+          {pending ? 'Importing…' : `Import ${selected.length} prospect${selected.length === 1 ? '' : 's'}`}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ── Page ─────────────────────────────────────────────────────────── */
 
 export default function CompanyDetailPage() {
@@ -408,6 +642,82 @@ export default function CompanyDetailPage() {
     onError: (err) => toast.error(err.response?.data?.message || 'Signal detection failed.'),
   });
 
+  /* ── Prospect finder ──────────────────────────────────────────── */
+
+  // Shared cache entries with the campaign tabs, so a playbook or persona
+  // edited in Settings is reflected here without a bespoke invalidation.
+  const { data: playbooks = [] } = useQuery({
+    queryKey: ['playbooks', 'all'],
+    queryFn: () => api.get('/playbooks').then((r) => r.data.data),
+    staleTime: 30_000,
+  });
+  const { data: personas = [] } = useQuery({
+    queryKey: ['personas', 'all'],
+    queryFn: () => api.get('/personas').then((r) => r.data.data),
+    staleTime: 30_000,
+  });
+
+  const [finderOpen, setFinderOpen] = useState(false);
+  const [playbookId, setPlaybookId] = useState('');
+  const [selectedPersonaIds, setSelectedPersonaIds] = useState([]);
+  // Which candidates the user has ticked for import. Kept separate from the
+  // candidates themselves, which are server state.
+  const [selectedCandidateIds, setSelectedCandidateIds] = useState([]);
+  // Local-only "I'm done with these results" — the candidates stay on the
+  // record (a re-run costs real searches) but stop occupying the card.
+  const [resultsDismissed, setResultsDismissed] = useState(false);
+
+  // Default to the playbook this company was last searched with, then the
+  // newest active one. Held as an override rather than seeded state for the
+  // same reason as the signal selection: playbooks arrive asynchronously, and
+  // seeding on arrival would move the selection under someone already choosing.
+  const effectivePlaybookId = useMemo(() => {
+    if (playbookId) return playbookId;
+    const last = company?.prospectSearch?.playbook;
+    if (last && playbooks.some((p) => p._id === last)) return last;
+    return playbooks.find((p) => p.isActive !== false)?._id || '';
+  }, [playbookId, company?.prospectSearch?.playbook, playbooks]);
+
+  const findProspectsMutation = useMutation({
+    mutationFn: () => api.post(`/companies/${id}/find-prospects`, { playbookId: effectivePlaybookId, personaIds: selectedPersonaIds }),
+    onSuccess: (res) => {
+      const n = res.data?.found ?? 0;
+      toast.success(
+        n > 0
+          ? `${n} candidate(s) found — review and import.`
+          : 'No matching people found. Try a broader playbook or add personas.'
+      );
+      setFinderOpen(false);
+      setResultsDismissed(false);
+      setSelectedCandidateIds([]);
+      queryClient.invalidateQueries({ queryKey: ['company', id] });
+    },
+    onError: (err) => {
+      if (err.response?.data?.code === 'NO_VERIFIED_IDENTITY') {
+        toast.error("Set this company's website or LinkedIn page first.");
+      } else {
+        toast.error(err.response?.data?.message || 'Prospect search failed.');
+      }
+    },
+  });
+
+  const importProspectsMutation = useMutation({
+    mutationFn: (candidateIds) => api.post(`/companies/${id}/import-prospects`, { candidateIds }),
+    onSuccess: (res) => {
+      const n = res.data?.imported ?? 0;
+      const skipped = res.data?.skipped ?? 0;
+      toast.success(
+        skipped > 0
+          ? `${n} prospect(s) imported — ${skipped} skipped (plan limit).`
+          : `${n} prospect(s) imported. Enrichment has started.`
+      );
+      setSelectedCandidateIds([]);
+      queryClient.invalidateQueries({ queryKey: ['company', id] });
+      queryClient.invalidateQueries({ queryKey: ['prospects'] });
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'Import failed.'),
+  });
+
   const findContactsMutation = useMutation({
     mutationFn: (force) => api.post(`/companies/${id}/find-contacts`, { force }),
     onSuccess: (res) => {
@@ -450,6 +760,14 @@ export default function CompanyDetailPage() {
 
   const isAnalyzed = Boolean(company.aiAnalysis?.lastAnalyzedAt);
   const prospects = company.prospects || [];
+  // Candidates awaiting a decision. Imported ones stay on the record so a
+  // re-run never re-offers someone already in the pipeline, but they belong in
+  // the prospect list below, not in the review panel.
+  const pendingCandidates = (company.prospectSearch?.candidates || []).filter((c) => !c.imported);
+  const searchFailed = company.prospectSearch?.status === 'failed' && Boolean(company.prospectSearch?.error);
+  // Anything rendered above the prospect list means the list can no longer
+  // bleed to the card's top edge — its -m-5 would ride over the panel.
+  const hasFinderPanel = finderOpen || (pendingCandidates.length > 0 && !resultsDismissed) || searchFailed;
   const signals = Array.isArray(company.signals) ? company.signals : [];
   const contacts = Array.isArray(company.contacts) ? company.contacts : [];
   const openRoles = company.atsBoard?.openRoles;
@@ -741,11 +1059,82 @@ export default function CompanyDetailPage() {
             count={company.prospectCount ?? prospects.length}
             delay={280}
             className="overflow-hidden"
+            action={
+              <GhostButton
+                onClick={() => setFinderOpen((open) => !open)}
+                disabled={findProspectsMutation.isPending}
+                pending={findProspectsMutation.isPending}
+                icon={Target}
+              >
+                <span className="max-w-[180px] truncate">
+                  {findProspectsMutation.isPending ? 'Searching…' : `Find ${company.name}'s prospects`}
+                </span>
+                {!findProspectsMutation.isPending && (
+                  <ChevronRight size={13} className={`transition-transform ${finderOpen ? 'rotate-90' : ''}`} />
+                )}
+              </GhostButton>
+            }
           >
+            {finderOpen && (
+              <ProspectFinderPicker
+                companyName={company.name}
+                playbooks={playbooks}
+                personas={personas}
+                playbookId={effectivePlaybookId}
+                onPlaybookChange={setPlaybookId}
+                selectedPersonaIds={selectedPersonaIds}
+                onTogglePersona={(personaId) =>
+                  setSelectedPersonaIds((ids) =>
+                    ids.includes(personaId) ? ids.filter((p) => p !== personaId) : [...ids, personaId]
+                  )
+                }
+                onRun={() => findProspectsMutation.mutate()}
+                onCancel={() => setFinderOpen(false)}
+                pending={findProspectsMutation.isPending}
+              />
+            )}
+
+            {pendingCandidates.length > 0 && !resultsDismissed && (
+              <CandidateReview
+                candidates={pendingCandidates}
+                selected={selectedCandidateIds}
+                pending={importProspectsMutation.isPending}
+                playbookName={company.prospectSearch?.playbookName}
+                lastRunAt={company.prospectSearch?.lastRunAt}
+                onToggle={(candidateId) =>
+                  setSelectedCandidateIds((ids) =>
+                    ids.includes(candidateId) ? ids.filter((c) => c !== candidateId) : [...ids, candidateId]
+                  )
+                }
+                onSelectAll={(all) => setSelectedCandidateIds(all ? pendingCandidates.map((c) => c._id) : [])}
+                onImport={() => importProspectsMutation.mutate(selectedCandidateIds)}
+                onDismiss={() => {
+                  setResultsDismissed(true);
+                  setSelectedCandidateIds([]);
+                }}
+              />
+            )}
+
+            {searchFailed && (
+              <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-red-500/25 bg-red-500/[0.07] px-4 py-3">
+                <AlertTriangle size={15} className="mt-0.5 shrink-0 text-red-400" />
+                <p className="text-sm leading-relaxed text-red-200/90">
+                  <span className="font-medium">Last search failed.</span> {company.prospectSearch.error}
+                </p>
+              </div>
+            )}
+
             {prospects.length === 0 ? (
-              <EmptyState icon={Users}>No prospects linked to this company yet.</EmptyState>
+              <EmptyState icon={Users}>
+                No prospects linked to this company yet. Attach a playbook and run a search to find people
+                worth reaching at {company.name}.
+              </EmptyState>
             ) : (
-              <div className="-m-5 divide-y divide-slate-800/60">
+              <div
+                className={`divide-y divide-slate-800/60 ${
+                  hasFinderPanel ? '-mx-5 -mb-5 border-t border-slate-800/60' : '-m-5'
+                }`}
+              >
                 {prospects.map((p) => {
                   const fullName = `${p.firstName || ''} ${p.lastName || ''}`.trim();
                   return (

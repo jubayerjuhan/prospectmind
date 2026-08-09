@@ -1,11 +1,16 @@
 import mongoose from 'mongoose';
 import Company from '../models/Company.js';
 import Prospect from '../models/Prospect.js';
+import Playbook from '../models/Playbook.js';
+import Persona from '../models/Persona.js';
 import { normalizeCompanyName, findOrCreateCompany } from '../services/company/companyService.js';
 import { analyzeCompany } from '../services/company/companyAnalyzer.js';
 import { findCompanyContacts } from '../services/company/contactFinder.js';
 import { resolveCompanyLinkedin } from '../services/company/linkedinResolver.js';
+import { findCompanyProspects } from '../services/company/prospectFinder.js';
+import { ensureCompanyLink } from '../services/company/companyResolver.js';
 import { detectCompanySignals } from '../services/pipeline/signalDetector.js';
+import { queuePipelineRun } from '../services/pipeline/queue.js';
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
@@ -321,6 +326,147 @@ export const findLinkedinHandler = async (req, res) => {
       success: true,
       data: updated,
       found: Boolean(updated?.linkedinKey),
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// POST /api/companies/:id/find-prospects
+// Searches for people at this company matching an attached Playbook (+ optional
+// Personas) and stores them as reviewable candidates. Creates nothing.
+export const findProspectsHandler = async (req, res) => {
+  try {
+    const { playbookId, personaIds = [] } = req.body || {};
+
+    if (!mongoose.Types.ObjectId.isValid(playbookId || '')) {
+      return res.status(400).json({ success: false, message: 'Attach a playbook to search with.' });
+    }
+    if (!Array.isArray(personaIds) || !personaIds.every((id) => mongoose.Types.ObjectId.isValid(id))) {
+      return res.status(400).json({ success: false, message: 'One or more selected personas are invalid.' });
+    }
+
+    const company = await Company.findOne({
+      _id: req.params.id,
+      organization: req.organization._id,
+    });
+
+    if (!company) {
+      return res.status(404).json({ success: false, message: 'Company not found.' });
+    }
+
+    // Same rule as signal detection: a people search keyed on a bare name finds
+    // the namesake's staff just as happily, and those become real prospects.
+    if (!company.domainKey && !company.linkedinKey) {
+      return res.status(409).json({
+        success: false,
+        code: 'NO_VERIFIED_IDENTITY',
+        message: "Set this company's website or LinkedIn page before finding prospects — without one, the search may return people from a different company with the same name.",
+      });
+    }
+
+    const playbook = await Playbook.findOne({ _id: playbookId, organization: req.organization._id }).lean();
+    if (!playbook) {
+      return res.status(404).json({ success: false, message: 'Playbook not found.' });
+    }
+
+    const personas = personaIds.length
+      ? await Persona.find({ _id: { $in: personaIds }, organization: req.organization._id })
+          .select('_id name prompt')
+          .lean()
+      : [];
+
+    const updated = await findCompanyProspects(company, { playbook, personas });
+    const candidates = updated.prospectSearch?.candidates || [];
+
+    res.json({
+      success: true,
+      data: updated,
+      found: candidates.filter((c) => !c.imported).length,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// POST /api/companies/:id/import-prospects
+// Turns selected candidates into real Prospects and starts the pipeline on each.
+export const importProspectsHandler = async (req, res) => {
+  try {
+    const { candidateIds } = req.body || {};
+    if (!Array.isArray(candidateIds) || candidateIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'Select at least one prospect to import.' });
+    }
+
+    const company = await Company.findOne({
+      _id: req.params.id,
+      organization: req.organization._id,
+    });
+
+    if (!company) {
+      return res.status(404).json({ success: false, message: 'Company not found.' });
+    }
+
+    const wanted = new Set(candidateIds.map(String));
+    const selected = (company.prospectSearch?.candidates || []).filter(
+      (c) => wanted.has(String(c._id)) && !c.imported
+    );
+
+    if (!selected.length) {
+      return res.status(400).json({ success: false, message: 'Those candidates are no longer available to import.' });
+    }
+
+    // Clamp to what the plan still allows rather than failing the whole batch —
+    // importing the first eight of ten is more useful than importing none.
+    const available = req.organization.getProspectLimit() - req.organization.usage.prospectsThisMonth;
+    if (available <= 0) {
+      return res.status(403).json({
+        success: false,
+        code: 'LIMIT_REACHED',
+        message: `You've reached your plan limit (${req.organization.getProspectLimit()} prospects/month). Upgrade to import more.`,
+      });
+    }
+
+    const toImport = selected.slice(0, available);
+    const imported = [];
+
+    for (const candidate of toImport) {
+      // The employer hint is what makes ensureCompanyLink resolve back to THIS
+      // company with honest provenance ('linkedin-company' / 'domain-hint')
+      // instead of a weak name-only match. The identity guard on the search
+      // above guarantees at least one of these exists.
+      const prospect = await Prospect.create({
+        organization: req.organization._id,
+        createdBy: req.user._id,
+        firstName: candidate.firstName,
+        lastName: candidate.lastName,
+        company: company.name,
+        rawLinkedin: candidate.linkedinUrl,
+        rawCompanyLinkedin: company.linkedinUrl || '',
+        rawCompanyDomain: company.domain || '',
+        description: candidate.matchReason
+          ? `Found by the prospect finder${company.prospectSearch?.playbookName ? ` using the "${company.prospectSearch.playbookName}" playbook` : ''}: ${candidate.matchReason}`
+          : '',
+      });
+
+      await ensureCompanyLink(prospect).catch(() => null);
+
+      candidate.imported = true;
+      candidate.prospect = prospect._id;
+      imported.push(prospect);
+
+      queuePipelineRun(prospect._id).catch((err) =>
+        console.error(`Queue error for ${prospect._id}:`, err.message)
+      );
+    }
+
+    await company.save();
+
+    res.status(201).json({
+      success: true,
+      data: company,
+      imported: imported.length,
+      skipped: selected.length - imported.length,
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

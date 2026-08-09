@@ -66,6 +66,29 @@ const companyContactSchema = new mongoose.Schema(
   { _id: false }
 );
 
+/**
+ * One person the prospect finder turned up at this company.
+ *
+ * Candidates are NOT prospects. They are search results held for review, so a
+ * run that returns twenty half-matches costs nothing against the org's prospect
+ * limit and never puts twenty unverified people through the pipeline. `imported`
+ * records the ones the user accepted, which is also what keeps a re-run from
+ * offering the same person twice.
+ */
+const prospectCandidateSchema = new mongoose.Schema({
+  firstName: { type: String, required: true },
+  lastName: { type: String, default: '' },
+  role: { type: String, default: '' },
+  linkedinUrl: { type: String, default: '' },
+  // Why the AI kept this person against the playbook/persona brief. Shown in
+  // the picker — a candidate the user can't judge is a candidate they'll skip.
+  matchReason: { type: String, default: '' },
+  confidence: { type: Number, min: 0, max: 1, default: null },
+  imported: { type: Boolean, default: false },
+  prospect: { type: mongoose.Schema.Types.ObjectId, ref: 'Prospect' },
+  foundAt: { type: Date, default: Date.now },
+});
+
 const companySchema = new mongoose.Schema(
   {
     organization: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization', required: true, index: true },
@@ -118,6 +141,19 @@ const companySchema = new mongoose.Schema(
 
     contacts: { type: [companyContactSchema], default: [] },
     contactsScannedAt: Date,
+
+    // Last prospect-finder run. Persisted rather than returned-and-forgotten
+    // because a run is several searches plus two AI calls — losing the results
+    // to a page refresh would mean paying for them again.
+    prospectSearch: {
+      status: { type: String, enum: ['idle', 'ready', 'failed'], default: 'idle' },
+      lastRunAt: Date,
+      playbook: { type: mongoose.Schema.Types.ObjectId, ref: 'Playbook' },
+      playbookName: { type: String, default: '' },
+      personas: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Persona' }],
+      error: { type: String, default: '' },
+      candidates: { type: [prospectCandidateSchema], default: [] },
+    },
   },
   { timestamps: true }
 );
