@@ -64,6 +64,7 @@ A `ProspectList` **is** a campaign (v2 Phase D). It carries membership, strategy
 |---|---|---|
 | GET | `/companies` | List |
 | POST | `/companies` | Create |
+| GET | `/companies/duplicates` | Likely duplicate pairs awaiting review |
 | GET | `/companies/:id` | Detail |
 | PATCH | `/companies/:id` | Update |
 | DELETE | `/companies/:id` | Delete |
@@ -71,6 +72,9 @@ A `ProspectList` **is** a campaign (v2 Phase D). It carries membership, strategy
 | POST | `/companies/:id/detect-signals` | Run active company-scoped Signals |
 | POST | `/companies/:id/find-contacts` | Scan the company website for contacts |
 | POST | `/companies/:id/find-linkedin` | Resolve + verify the company's LinkedIn page |
+| POST | `/companies/:id/find-prospects` | Find people at this company against a Playbook |
+| POST | `/companies/:id/import-prospects` | Turn selected candidates into Prospects |
+| POST | `/companies/:id/merge` | Fold a duplicate company into this one |
 
 ---
 
@@ -125,6 +129,40 @@ All routes require auth. All queries scoped to `req.organization._id`.
 | POST | `/companies/:id/detect-signals` | 🔒 | Run company Signals. Body: `{ signalIds? }` — see below |
 | POST | `/companies/:id/find-contacts` | 🔒 | Scan the company website for contacts. Body: `{ force? }` |
 | POST | `/companies/:id/find-linkedin` | 🔒 | Resolve the company's LinkedIn page. Body: `{ force? }` |
+| POST | `/companies/:id/find-prospects` | 🔒 | Find people at this company. Body: `{ playbookId, personaIds? }` — see below |
+| POST | `/companies/:id/import-prospects` | 🔒 | Import candidates as Prospects. Body: `{ candidateIds }` |
+| GET | `/companies/duplicates` | 🔒 | Likely duplicate pairs — see below |
+| POST | `/companies/:id/merge` | 🔒 | Merge `duplicateId` into `:id`. Body: `{ duplicateId }` |
+
+**Prospect finder.** `find-prospects` plans Google queries from the Playbook (and
+any Personas), pools LinkedIn hits, and has the AI keep only people who visibly
+work at that company. Results are stored on `company.prospectSearch.candidates`
+as *candidates, not prospects* — they cost nothing against the plan limit until
+`import-prospects` is called with an explicit selection. The search 409s with
+`NO_VERIFIED_IDENTITY` unless the company has a domain or LinkedIn page: a
+name-only people search returns the namesake's staff just as happily.
+
+**Duplicates.** `GET /companies/duplicates` never mutates. A pair is reported
+only when the normalized names match AND either the domains are one brand under
+two public suffixes (`certik.com` / `certik.org`) or one side is a keyless
+placeholder. A bare name match is never enough — see `docs/architecture.md` on
+why identity is keyed. Three things veto a pair:
+
+- **Different LinkedIn pages.** Compared only within the same key form: a slug
+  (`certik`) and a numeric id (`id:11831043`) are two ways of writing one page,
+  so they are not a contradiction. Two differing slugs, or two differing ids, are.
+- **Contradicting sectors.** A brand across two TLDs is genuinely ambiguous —
+  `certik.com`/`certik.org` is one company, `kiln.fi`/`kiln.com` is a staking
+  company and a coworking operator. Once both sides are analyzed, industries
+  sharing no term settle it. An unanalyzed record is silent, not contradicting.
+- **Ambiguity.** A bare placeholder matches every keyed sibling sharing its
+  name. When more than one matches there is nothing to choose between them, so
+  the pair is withheld rather than offered as an irreversible coin flip.
+
+The survivor is chosen by identity strength, then linked prospects (the record
+the org's work points at), then how much each knows, then age. `POST /:id/merge`
+is the only thing that combines records, it is irreversible, and the caller
+names both sides — the UI's suggestion is a default, not a decision.
 
 **`detect-signals` selection.** `signalIds` is optional. Omitted, every *active*
 company Signal in the org runs — the same set the background pipeline uses.

@@ -1,5 +1,6 @@
 import Company from '../../models/Company.js';
 import { normalizeDomainKey, linkedinCompanyKey, linkedinCompanyUrl } from '../../utils/domains.js';
+import { findMergeTarget } from './companyMerger.js';
 
 /**
  * Normalize a company name into a dedupe key.
@@ -98,9 +99,13 @@ export const findOrCreatePlaceholder = async ({ organization, name, createdBy } 
  *  - `matched`             — the company is already on record.
  *  - `promoted-placeholder`— a name-only record existed and this key resolves
  *                            it. Its stale, guess-derived research is cleared.
+ *  - `merged`              — a same-named sibling under a different key was the
+ *                            same company (certik.com / certik.org). Facts fold
+ *                            into it; no second row. See companyMerger.js.
  *  - `created`             — new record. When a same-named company already
- *                            exists under a DIFFERENT key this is the split
- *                            that the old name-unique index made impossible.
+ *                            exists under a DIFFERENT key AND the merge rule
+ *                            does not vouch for them being one company, this is
+ *                            the split the old name-unique index made impossible.
  *
  * @param {'linkedinKey'|'domainKey'} keyField
  */
@@ -151,6 +156,48 @@ export const findOrCreateByKey = async ({ organization, name, keyField, key, fac
       // Lost the CAS to a concurrent promoter — take their result.
       const winner = await Company.findOne({ organization, [keyField]: key });
       if (winner) return { company: winner, action: 'matched' };
+    }
+  }
+
+  // A same-named sibling holding a DIFFERENT key can still be the same company
+  // — certik.com and certik.org are one company owning its brand twice. Folding
+  // the facts into it beats creating the second row, which is a duplicate the
+  // user then has to reconcile by hand. companyMerger owns the rule for when
+  // that is safe; a bare name match never qualifies.
+  if (nameKey) {
+    const mergeTarget = await findMergeTarget({
+      organization,
+      nameKey,
+      linkedinKey: patch.linkedinKey || '',
+      domainKey: patch.domainKey || '',
+    });
+
+    if (mergeTarget) {
+      const fill = {};
+      for (const field of ['website', 'domain', 'industry', 'size', 'headquarters', 'founded']) {
+        if (!mergeTarget[field] && patch[field]) fill[field] = patch[field];
+      }
+      // Only a gap is filled. The target's own key is the identity its research
+      // and prospect links were resolved against, so it is never replaced.
+      if (!mergeTarget.linkedinKey && patch.linkedinKey) {
+        fill.linkedinKey = patch.linkedinKey;
+        if (patch.linkedinUrl) fill.linkedinUrl = patch.linkedinUrl;
+      }
+      if (!mergeTarget.domainKey && patch.domainKey) fill.domainKey = patch.domainKey;
+
+      // Record the key we folded in, so it stays visible why this one record
+      // answers to two domains.
+      const alias = patch.domainKey && patch.domainKey !== mergeTarget.domainKey ? patch.domainKey : '';
+      const update = {
+        ...(Object.keys(fill).length ? { $set: fill } : {}),
+        ...(alias ? { $push: { sourceRefs: { source: 'merge', note: `alias domain ${alias}` } } } : {}),
+      };
+
+      const updated = Object.keys(update).length
+        ? await Company.findOneAndUpdate({ _id: mergeTarget._id, organization }, update, { returnDocument: 'after' })
+        : mergeTarget;
+
+      return { company: updated || mergeTarget, action: 'merged' };
     }
   }
 

@@ -41,6 +41,9 @@ These shipped after the v2 phases and were never in the roadmap:
 - **BullMQ + Redis queue** — was Phase 4 "Scale"; already live. Workers are gated behind `RUN_WORKERS` so only the designated instance polls Redis.
 - **Deployment** — Dockerfile, entrypoint, Cloud Build.
 - **Voice input** — `/api/ai/transcribe` + `MicButton`.
+- **Company Prospect Finder** (`prospectFinder.js`) — plan Google queries from a Playbook, pool LinkedIn hits, AI-verify against the brief. Results are *candidates* held on the Company for review, so a loose run costs nothing against the plan limit until explicitly imported.
+- **Company de-duplication** (`companyMerger.js`) — `certik.com` and `certik.org` were two rows for one company. Detection is deliberately conservative (matching name **plus** same brand across TLDs, or a keyless placeholder), and merging is always user-confirmed from the Companies page. A bare name match never merges — that collapse is exactly what the keyed identity model exists to prevent. Three vetoes were each added because real data broke the rule without them: differing LinkedIn keys *of the same form* (a slug and a numeric id are one page written two ways), contradicting industries (`kiln.fi` staking vs `kiln.com` coworking share a brand but are different companies), and ambiguity (a bare placeholder matching several keyed siblings is withheld rather than offered as a coin flip).
+- **Server unit tests** — `node --test` via `npm test` in `server/`, no new dependencies. First tests cover the prospect finder's URL allowlist and the merge rule: both are places where a wrong call silently corrupts data.
 
 ---
 

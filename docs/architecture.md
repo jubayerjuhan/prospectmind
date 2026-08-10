@@ -93,6 +93,8 @@ server/src/
     │   ├── companyResolver.js    # resolve a prospect's employer → Company
     │   ├── companyAnalyzer.js    # website discovery → scrape → AI analysis (cached)
     │   ├── linkedinResolver.js   # find + VERIFY a company's LinkedIn page
+    │   ├── companyMerger.js      # duplicate detection + merge (certik.com/.org)
+    │   ├── prospectFinder.js     # find the right PEOPLE at a known company
     │   ├── contactFinder.js
     │   └── atsBoards.js
     ├── scraper/

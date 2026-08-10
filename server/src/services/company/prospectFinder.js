@@ -28,6 +28,23 @@ const MAX_QUERIES = 4;
 const RESULTS_PER_QUERY = 10;
 const MAX_CANDIDATES = 25;
 
+// How many pooled profiles may reach the verify prompt. This is the INPUT
+// budget and is deliberately independent of MAX_CANDIDATES, which bounds the
+// output: expressing the pool as `MAX_CANDIDATES * 2` made a search-breadth
+// limit depend on a keep-count, so widening the search would have silently
+// re-bound the pool through an unrelated constant. Today the search itself
+// caps lower — MAX_QUERIES * RESULTS_PER_QUERY = 40 — so this does not yet
+// truncate; it exists so that stays true on purpose rather than by accident.
+const MAX_POOL = 50;
+
+// The verify call is the one that can outgrow its budget: it may be handed up
+// to MAX_POOL hits, and a full answer runs ~70 tokens per candidate (name,
+// role, URL, a sentence of reasoning). At MAX_CANDIDATES that is ~1.8k, so the
+// cap is set with headroom — a truncated response is unparseable JSON, which
+// fails a run the user has already paid four searches for. The prompt caps the
+// count too; this is the backstop for when the model ignores it.
+const VERIFY_MAX_TOKENS = 4096;
+
 const PLAN_SYSTEM_PROMPT = `You are a sourcing strategist. You convert a business brief into precise Google search queries that surface the LinkedIn profiles of specific people at a specific company.
 You know that a query must contain job titles and the company name — never business goals, value propositions, or tone instructions.
 Always return valid JSON.`;
@@ -117,12 +134,18 @@ Return JSON:
   }
 };
 
-/** linkedin.com/in/<slug>, normalized so the same person dedupes across queries. */
+/**
+ * linkedin.com/in/<slug>, normalized so the same person dedupes across queries.
+ *
+ * Scheme and subdomain are both rewritten in one pass. Doing it in two — one
+ * rule for a regional prefix, one for a bare host — left `http://www.` matching
+ * neither, so the same profile arriving over http and https produced two keys:
+ * a silent duplicate in the results, and a miss against the verify allowlist.
+ */
 const normalizeProfileUrl = (link = '') => {
   if (!link.includes('linkedin.com/in/')) return '';
   return link
-    .replace(/^https?:\/\/[a-z]{2}\.linkedin\.com/i, 'https://www.linkedin.com')
-    .replace(/^https?:\/\/linkedin\.com/i, 'https://www.linkedin.com')
+    .replace(/^https?:\/\/([a-z0-9-]+\.)?linkedin\.com/i, 'https://www.linkedin.com')
     .split('?')[0]
     .replace(/\/$/, '')
     .toLowerCase();
@@ -141,7 +164,7 @@ const gatherSearchHits = async (queries) => {
     }
   }
 
-  return [...byUrl.values()].slice(0, MAX_CANDIDATES * 2);
+  return [...byUrl.values()].slice(0, MAX_POOL);
 };
 
 /** Judge the pooled hits against the brief. Returns candidate objects. */
@@ -169,7 +192,8 @@ Rules:
 3. role is their current job title at ${company.name}, as stated in the result.
 4. matchReason is ONE sentence saying why this person fits the brief, referencing their role.
 5. confidence 0.0-1.0 reflects how certain you are they currently work there AND match.
-6. An empty list is a valid, correct answer. Never pad it.
+6. Return at most ${MAX_CANDIDATES} candidates. If more than that qualify, keep the highest-confidence ones.
+7. An empty list is a valid, correct answer. Never pad it.
 
 Return JSON:
 { "candidates": [ { "firstName": "…", "lastName": "…", "role": "…", "linkedinUrl": "…", "matchReason": "…", "confidence": 0.0 } ] }`;
@@ -177,7 +201,7 @@ Return JSON:
   const res = await callAI({
     systemPrompt: VERIFY_SYSTEM_PROMPT,
     userPrompt,
-    maxTokens: 2048,
+    maxTokens: VERIFY_MAX_TOKENS,
     jsonMode: true,
     thinkingBudget: 0,
   });
@@ -199,7 +223,8 @@ Return JSON:
       firstName,
       lastName: String(c?.lastName || '').trim(),
       role: String(c?.role || '').trim(),
-      // Store the canonical casing from the search result, not the AI's echo.
+      // Store the allowlisted URL, never the model's echo of it — the two can
+      // differ in scheme, subdomain and case, and only this one is known real.
       linkedinUrl: allowed.get(url).url,
       matchReason: String(c?.matchReason || '').trim(),
       confidence: Number.isFinite(confidence) ? Math.min(1, Math.max(0, confidence)) : null,
@@ -277,4 +302,15 @@ export const findCompanyProspects = async (company, { playbook, personas = [], c
   }
 };
 
-export const __prospectFinderTesting = { normalizeProfileUrl, buildBrief, verifyCandidates, planQueries };
+export const __prospectFinderTesting = {
+  normalizeProfileUrl,
+  buildBrief,
+  verifyCandidates,
+  planQueries,
+  // Exported so the budget test derives its threshold from the real cap rather
+  // than a copy of it — a hardcoded 25 stops asserting anything the moment
+  // MAX_CANDIDATES moves.
+  MAX_CANDIDATES,
+  MAX_POOL,
+  VERIFY_MAX_TOKENS,
+};

@@ -8,6 +8,7 @@ import { analyzeCompany } from '../services/company/companyAnalyzer.js';
 import { findCompanyContacts } from '../services/company/contactFinder.js';
 import { resolveCompanyLinkedin } from '../services/company/linkedinResolver.js';
 import { findCompanyProspects } from '../services/company/prospectFinder.js';
+import { findDuplicateGroups, mergeCompanies } from '../services/company/companyMerger.js';
 import { ensureCompanyLink } from '../services/company/companyResolver.js';
 import { detectCompanySignals } from '../services/pipeline/signalDetector.js';
 import { queuePipelineRun } from '../services/pipeline/queue.js';
@@ -418,12 +419,25 @@ export const importProspectsHandler = async (req, res) => {
 
     // Clamp to what the plan still allows rather than failing the whole batch —
     // importing the first eight of ten is more useful than importing none.
-    const available = req.organization.getProspectLimit() - req.organization.usage.prospectsThisMonth;
+    //
+    // Counted live instead of read from `usage.prospectsThisMonth`, because that
+    // counter only increments when a pipeline COMPLETES (runner.js) and so lags
+    // every prospect still sitting in the queue. One import of 25 leaves it
+    // reading zero, and a second import moments later would be handed the same
+    // full headroom — together overshooting the plan by a batch. Prospects exist
+    // the instant they are created, so counting them is what makes this hold.
+    const limit = req.organization.getProspectLimit();
+    const usedThisPeriod = await Prospect.countDocuments({
+      organization: req.organization._id,
+      createdAt: { $gte: req.organization.usage?.lastResetAt || new Date(0) },
+    });
+    const available = limit - usedThisPeriod;
+
     if (available <= 0) {
       return res.status(403).json({
         success: false,
         code: 'LIMIT_REACHED',
-        message: `You've reached your plan limit (${req.organization.getProspectLimit()} prospects/month). Upgrade to import more.`,
+        message: `You've reached your plan limit (${limit} prospects/month). Upgrade to import more.`,
       });
     }
 
@@ -470,6 +484,48 @@ export const importProspectsHandler = async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// GET /api/companies/duplicates
+// Likely duplicate pairs awaiting review. Read-only — merging is always an
+// explicit second call, so nothing collapses without the user seeing it first.
+export const getDuplicatesHandler = async (req, res) => {
+  try {
+    // Pairs already carry prospectCount — it is what decided which side is
+    // primary, so re-counting here could only disagree with the pick shown.
+    const data = await findDuplicateGroups(req.organization._id);
+
+    res.json({ success: true, data, count: data.length });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// POST /api/companies/:id/merge  { duplicateId }
+// Folds `duplicateId` into `:id` and deletes it. Irreversible, so the caller
+// names both sides explicitly rather than letting the server choose.
+export const mergeCompanyHandler = async (req, res) => {
+  try {
+    const { duplicateId } = req.body || {};
+
+    if (!mongoose.Types.ObjectId.isValid(duplicateId || '')) {
+      return res.status(400).json({ success: false, message: 'Select which company to merge in.' });
+    }
+    if (String(duplicateId) === String(req.params.id)) {
+      return res.status(400).json({ success: false, message: 'A company cannot be merged into itself.' });
+    }
+
+    const { company, movedProspects, mergedName } = await mergeCompanies({
+      organization: req.organization._id,
+      primaryId: req.params.id,
+      duplicateId,
+    });
+
+    res.json({ success: true, data: company, movedProspects, mergedName });
+  } catch (error) {
+    const notFound = /not found/i.test(error.message);
+    res.status(notFound ? 404 : 500).json({ success: false, message: error.message });
   }
 };
 
