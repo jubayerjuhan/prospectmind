@@ -185,6 +185,22 @@ const prospectSchema = new mongoose.Schema(
     // personaScores below, which is prompt-driven off first-class Personas.
     personaBreakdown: mongoose.Schema.Types.Mixed,
 
+    // What Layer 4 actually scored this prospect against, captured at scoring
+    // time so the UI can say which context produced the number. Re-deriving it
+    // at read time lies once campaign membership or org settings change — the
+    // campaign is reverse-resolved from list membership (see runner.js).
+    // Absent on prospects scored before this field existed; the UI renders that
+    // as "context not recorded" rather than claiming there was no campaign.
+    scoringContext: {
+      campaign: { type: mongoose.Schema.Types.ObjectId, ref: 'ProspectList', default: null },
+      campaignName: { type: String, default: '' },
+      goalSource: { type: String, enum: ['campaign', 'organization', 'none'], default: 'none' },
+      ecosystem: { type: String, default: '' },
+      personaNames: [{ type: String }],
+      personaSource: { type: String, enum: ['campaign', 'org-active', 'none'], default: 'none' },
+      scoredAt: { type: Date },
+    },
+
     // Prompt-driven scores against first-class Personas (v2 Phase C).
     // Each active Persona's user-authored prompt is run against this prospect.
     personaScores: [

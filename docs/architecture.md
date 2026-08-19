@@ -61,6 +61,9 @@ server/src/
 │   ├── User.js               # email, password, org ref, role, refreshToken
 │   ├── Organization.js       # plan, usage, members, Stripe ids, settings
 │   ├── Prospect.js           # raw input + enriched profile + personaScores + signals + messages
+│   │                         #   + scoringContext: snapshot of what Layer 4 scored against
+│   │                         #     (campaign, goalSource, ecosystem, personaNames), written
+│   │                         #     at scoring time because it can't be re-derived later
 │   ├── Company.js            # first-class company (v2 Phase A)
 │   ├── ProspectList.js       # IS the campaign (v2 Phase D) — personas/playbooks/signals/sequence/outreach
 │   ├── Persona.js            # who we're scoring against (v2 Phase B)

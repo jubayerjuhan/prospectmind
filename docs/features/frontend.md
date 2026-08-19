@@ -38,6 +38,10 @@ components/
 ├── layout/        AppLayout · Sidebar · LinkedInSessionBanner · LinkedInSessionModal
 ├── prospects/     AddProspectModal · EditProspectModal · BulkUploadModal
 │                  ProspectListModal · CampaignImportModal · PersonaRadar
+│                  CampaignCsvImportModal — client-side CSV parse + column mapping,
+│                    posts to the campaign bulk-import endpoint
+│                  ScoreCell — score + the context it was scored against; also
+│                    exports ScoringContextChip, reused on the detail page
 ├── campaigns/     CampaignCard · StrategyPicker · CampaignStrategyTab
 │                  CampaignOutreachTab · ProspectTable · prospectStatus.js
 ├── settings/      PersonasSettings · PlaybooksSettings · SignalsSettings

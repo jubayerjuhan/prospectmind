@@ -20,6 +20,7 @@ const LINK_SOURCE_LABEL = {
 };
 import EditProspectModal from '../components/prospects/EditProspectModal';
 import PersonaRadar from '../components/prospects/PersonaRadar';
+import { ScoringContextChip } from '../components/prospects/ScoreCell';
 
 const ACTIVE_PIPELINE_STATUSES = ['pending', 'discovering', 'enriching', 'classifying', 'scoring', 'generating'];
 
@@ -314,12 +315,29 @@ export default function ProspectDetailPage() {
     company?.needsReview || ['low', 'none'].includes(p.companyLinkConfidence)
   );
 
+  // `p.campaign` is the live reverse-lookup; `p.scoringContext.campaign` is what
+  // the pipeline actually scored against. They diverge when the prospect was
+  // moved into (or out of) a campaign after its last run — worth surfacing
+  // rather than hiding, since the score is then stale.
+  const scoredCampaignId = p.scoringContext?.campaign;
+  const movedToCampaign =
+    p.scoringContext?.scoredAt && p.campaign && String(p.campaign._id) !== String(scoredCampaignId || '')
+      ? p.campaign.name
+      : null;
+
   // Rendered inside whichever of the two blocks is showing.
   const campaignFitBlock = p.compatibilityScore != null && (
     <div className="mb-4">
-      <p className="text-slate-500 text-[11px] font-semibold uppercase tracking-wider mb-2 flex items-center gap-1.5">
-        <Target size={12} className="text-indigo-400" /> Campaign Fit
-      </p>
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <p className="text-slate-500 text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5">
+          <Target size={12} className="text-indigo-400" /> Campaign Fit
+        </p>
+        <ScoringContextChip
+          context={p.scoringContext}
+          reasoning={p.scoreReasoning}
+          movedToCampaign={movedToCampaign}
+        />
+      </div>
       <CampaignFitGauge
         score={p.compatibilityScore}
         label={p.scoreLabel}

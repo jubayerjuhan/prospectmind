@@ -82,11 +82,20 @@ export const runPipeline = async (prospectId) => {
   const identityHint = deriveCompanyIdentity(prospect);
   const companyDomainHint = identityHint.keyField === 'domainKey' ? identityHint.key : '';
 
-  const campaignDescription =
-    (campaignList?.campaignDescription?.trim()) ||
-    org?.settings?.campaignDescription ||
-    org?.settings?.icpRules ||
-    '';
+  // Split from the old `a || b || c` chain so we can record WHICH source won —
+  // the value alone can't tell a campaign goal from the org-level fallback, and
+  // the UI needs that distinction to label the score honestly.
+  const orgGoal = org?.settings?.campaignDescription || org?.settings?.icpRules || '';
+  const goalSource = campaignList?.campaignDescription?.trim()
+    ? 'campaign'
+    : orgGoal
+      ? 'organization'
+      : 'none';
+  const campaignDescription = goalSource === 'campaign'
+    ? campaignList.campaignDescription.trim()
+    : goalSource === 'organization'
+      ? orgGoal
+      : '';
 
   const targetEcosystemContext =
     (campaignList?.targetEcosystemContext?.trim()) ||
@@ -108,6 +117,23 @@ export const runPipeline = async (prospectId) => {
   ]
     .filter(Boolean)
     .join('\n\n');
+
+  // Snapshot of everything above, persisted with the score so the UI can show
+  // what the model was actually given. `loadCampaignPersonas` falls back to
+  // every active org Persona when a campaign selects none, so read the
+  // campaign's own selection to tell the two apart.
+  const scoringContext = {
+    campaign: campaignList?._id || null,
+    campaignName: campaignList?.name || '',
+    goalSource,
+    ecosystem: targetEcosystemContext,
+    personaNames: campaignPersonas.map((persona) => persona.name),
+    personaSource: campaignList?.personas?.length
+      ? 'campaign'
+      : campaignPersonas.length
+        ? 'org-active'
+        : 'none',
+  };
 
   // Optional user-provided context about this specific prospect
   const prospectContext = prospect.description?.trim()
@@ -272,6 +298,7 @@ export const runPipeline = async (prospectId) => {
       scoreLabel: scoring.scoreLabel,
       scoreReasoning: scoring.scoreReasoning,
       scoreBreakdown: scoring.scoreBreakdown,
+      scoringContext: { ...scoringContext, scoredAt: new Date() },
       personaBreakdown: scoring.personaBreakdown || [],
       personaScores,
       signals: prospectSignals,

@@ -112,27 +112,34 @@ The prospect→`Company` link happens **after Layer 2**, because enrichment is t
 ## Layer 4 — Compatibility Scoring
 **File:** `scorer.js`
 
-**Input:** prospect + enriched profile + classification
+**Input:** prospect + enriched profile + classification + `fullCampaignContext`
+
+`fullCampaignContext` is assembled in `runner.js` and is the *only* place campaign
+intent reaches the analysis pipeline. It concatenates:
+
+| Part | Source | Fallback |
+|---|---|---|
+| Campaign goal | `ProspectList.campaignDescription` | `org.settings.campaignDescription` → `org.settings.icpRules` → `''` |
+| Ecosystem hint | `ProspectList.targetEcosystemContext` | `org.settings.defaultEcosystem` (default `web3`) |
+| Persona definitions | the campaign's selected `personas[]` | **every active Persona in the org** |
+
+The campaign is reverse-resolved from list membership (`ProspectList.findOne({ prospects: prospect._id, type: 'manual' })`)
+because the queue payload is only `{ prospectId }`. A prospect that belongs to no
+campaign is therefore scored against an **empty goal** plus all org personas — the
+prompt still frames it as a campaign, which is why orphan prospects trend generic.
 
 **What it does:**
-- Scores 0–100 based on weighted criteria (different weights for talent vs client)
+- Dynamically generates 3–5 scoring dimensions per prospect based on their
+  classification and the campaign goal, then scores 0–100 across them.
+  *(There is no longer a fixed weighted rubric — the old "Web3 depth 30% /
+  technical quality 25%…" tables were removed when scoring went dynamic.)*
 - Determines outreach priority: `high | medium | low`
 - Identifies best contact channel
 - Returns a human-readable score label
-
-**Scoring criteria for Talent:**
-- Web3 ecosystem depth (30%)
-- Technical quality & seniority (25%)
-- Open-source activity (20%)
-- Community presence (15%)
-- Contactability (10%)
-
-**Scoring criteria for Client:**
-- Hiring urgency (30%)
-- Web3 alignment (25%)
-- Company stage & funding (20%)
-- Decision-maker authority (15%)
-- Tech stack relevance (10%)
+- Persists a `scoringContext` snapshot (which campaign, which goal source,
+  ecosystem, persona names) alongside the score, so the UI can state what the
+  number was measured against. Re-deriving it at read time would drift once
+  campaign membership or org settings change.
 
 **Output:**
 ```json

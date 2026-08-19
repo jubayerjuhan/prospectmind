@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import { Plus, Search, RefreshCw, ChevronRight, Upload, ChevronLeft } from 'lucide-react';
 import AddProspectModal from '../components/prospects/AddProspectModal';
 import BulkUploadModal from '../components/prospects/BulkUploadModal';
+import ScoreCell from '../components/prospects/ScoreCell';
 
 const STATUS_COLOR = {
   pending: 'bg-slate-700 text-slate-300',
@@ -156,7 +157,7 @@ export default function ProspectsPage() {
               ))
             ) : prospects.length === 0 ? (
               <tr>
-                <td colSpan={7} className="text-center text-slate-500 py-12">
+                <td colSpan={8} className="text-center text-slate-500 py-12">
                   {search || statusFilter || priorityFilter ? 'No prospects match your filters.' : 'No prospects yet — add your first one.'}
                 </td>
               </tr>
@@ -171,14 +172,12 @@ export default function ProspectsPage() {
                   <td className="px-4 py-3 text-slate-400">{prospect.company || '—'}</td>
                   <td className="px-4 py-3 text-slate-400 capitalize">{prospect.primaryAngle || prospect.typeHint || '—'}</td>
                   <td className="px-4 py-3">
-                    {prospect.compatibilityScore != null ? (
-                      <div className="flex flex-col">
-                        <span className="text-indigo-400 font-bold">{prospect.compatibilityScore}</span>
-                        {prospect.scoreLabel && (
-                          <span className="text-indigo-500/70 text-xs capitalize">{prospect.scoreLabel}</span>
-                        )}
-                      </div>
-                    ) : '—'}
+                    <ScoreCell
+                      score={prospect.compatibilityScore}
+                      label={prospect.scoreLabel}
+                      reasoning={prospect.scoreReasoning}
+                      context={prospect.scoringContext}
+                    />
                   </td>
                   <td className={`px-4 py-3 font-medium capitalize ${PRIORITY_COLOR[prospect.outreachPriority] || 'text-slate-500'}`}>
                     {prospect.outreachPriority || '—'}
