@@ -144,6 +144,8 @@ const prospectSchema = new mongoose.Schema(
     rawX: String,
     rawTelegram: String,
     rawGithub: String,
+    rawPhone: String,
+    rawWebsite: String,
 
     // Pipeline status
     pipelineStatus: {

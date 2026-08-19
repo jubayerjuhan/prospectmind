@@ -51,6 +51,7 @@ A `ProspectList` **is** a campaign (v2 Phase D). It carries membership, strategy
 | POST | `/prospect-lists/:id/prospects` | Add. Body `{ prospectIds: [] }` |
 | DELETE | `/prospect-lists/:id/prospects` | Remove. Body `{ prospectIds: [] }` |
 | POST | `/prospect-lists/:id/add-and-create` | Create a prospect directly into the campaign |
+| POST | `/prospect-lists/:id/prospects/bulk-import` | CSV bulk create into the campaign. Body `{ candidates: [] }`. Dedupes within the upload and against existing members, clamps to the plan's remaining prospect allowance, and only queues the pipeline when the campaign has a `campaignDescription` |
 | POST | `/prospect-lists/:id/import-preview` · `/import-confirm` | Two-step bulk import |
 | GET | `/prospect-lists/:id/outreach` | Generated sequences + status |
 | POST | `/prospect-lists/:id/outreach/generate` | Build per-prospect sequences from **stored knowledge only** (skips non-ready prospects) |

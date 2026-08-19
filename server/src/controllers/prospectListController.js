@@ -651,6 +651,110 @@ export const addAndCreateProspect = async (req, res) => {
   }
 };
 
+// POST /api/prospect-lists/:id/prospects/bulk-import
+// Bulk version of add-and-create for CSV import: creates many prospects and
+// adds them to the campaign in one shot. Same campaign-gate behavior as
+// add-and-create — pipeline only queues when the campaign has settings.
+export const bulkImportProspectsToList = async (req, res) => {
+  try {
+    const { list, error } = await getManualList({
+      listId: req.params.id,
+      organizationId: req.organization._id,
+    });
+    if (error) {
+      return res.status(error.status).json({ success: false, message: error.message });
+    }
+
+    const rows = Array.isArray(req.body.candidates) ? req.body.candidates : [];
+    const withName = rows.filter((row) => row.firstName?.trim());
+    if (!withName.length) {
+      return res.status(400).json({ success: false, message: 'At least one row with a name is required.' });
+    }
+
+    const limit = req.organization.getProspectLimit();
+    const used = req.organization.usage.prospectsThisMonth;
+    const available = limit - used;
+    if (available <= 0) {
+      return res.status(403).json({ success: false, message: 'Monthly prospect limit reached.', code: 'LIMIT_REACHED' });
+    }
+
+    // Dedupe within the upload itself, then against what's already in this campaign.
+    const dedupeKey = (row) =>
+      `${row.firstName.trim().toLowerCase()} ${row.lastName?.trim().toLowerCase() || ''}`.trim() +
+      `::${row.company?.trim().toLowerCase() || ''}`;
+
+    const seen = new Set();
+    const deduped = [];
+    for (const row of withName) {
+      const key = dedupeKey(row);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(row);
+    }
+
+    const existingProspects = await Prospect.find({
+      _id: { $in: list.prospects },
+      organization: req.organization._id,
+      isArchived: false,
+    })
+      .select('firstName lastName company')
+      .lean();
+    const existingKeys = new Set(
+      existingProspects.map(
+        (p) => `${p.firstName.trim().toLowerCase()} ${p.lastName?.trim().toLowerCase() || ''}`.trim() + `::${(p.company || '').trim().toLowerCase()}`
+      )
+    );
+
+    const importable = deduped.filter((row) => !existingKeys.has(dedupeKey(row)));
+    const hasCampaignSettings = Boolean(list.campaignDescription?.trim());
+
+    const toCreate = importable.slice(0, available).map((row) => ({
+      organization: req.organization._id,
+      createdBy: req.user._id,
+      firstName: row.firstName.trim(),
+      lastName: row.lastName?.trim() || '',
+      company: row.company?.trim() || '',
+      typeHint: row.typeHint || 'unknown',
+      description: row.description?.trim() || '',
+      rawEmail: row.rawEmail?.trim() || '',
+      rawLinkedin: row.rawLinkedin?.trim() || '',
+      rawX: row.rawX?.trim() || '',
+      rawTelegram: row.rawTelegram?.trim() || '',
+      rawGithub: row.rawGithub?.trim() || '',
+      rawPhone: row.rawPhone?.trim() || '',
+      rawWebsite: row.rawWebsite?.trim() || '',
+    }));
+
+    const created = toCreate.length ? await Prospect.insertMany(toCreate) : [];
+
+    if (created.length) {
+      list.prospects = dedupeProspectIds([...list.prospects.map((id) => id.toString()), ...created.map((p) => p._id.toString())]);
+      await list.save();
+
+      // insertMany bypasses document middleware, so the company link has to be explicit.
+      for (const p of created) await ensureCompanyLink(p).catch(() => null);
+
+      if (hasCampaignSettings) {
+        created.forEach((p) => {
+          queuePipelineRun(p._id).catch((err) => console.error(`Queue error for ${p._id}:`, err.message));
+        });
+      }
+    }
+
+    res.status(201).json({
+      success: true,
+      data: {
+        created: created.length,
+        skipped: rows.length - created.length,
+      },
+      pipelineQueued: hasCampaignSettings,
+      campaignSettingsMissing: !hasCampaignSettings,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 // DELETE /api/prospect-lists/:id/prospects
 export const removeProspectsFromList = async (req, res) => {
   try {

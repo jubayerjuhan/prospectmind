@@ -5,10 +5,11 @@ import api from '../lib/api';
 import toast from 'react-hot-toast';
 import {
   Search, ArrowLeft, Megaphone, Plus, Link as LinkIcon, Pause, Play, Pencil, Trash2,
-  Users, Target, Send, Filter, Database, Save, AlertTriangle, Sparkles, FolderPlus,
+  Users, Target, Send, Filter, Database, Save, AlertTriangle, Sparkles, FolderPlus, FileSpreadsheet,
 } from 'lucide-react';
 import AddProspectModal from '../components/prospects/AddProspectModal';
 import CampaignImportModal from '../components/prospects/CampaignImportModal';
+import CampaignCsvImportModal from '../components/prospects/CampaignCsvImportModal';
 import ProspectListModal from '../components/prospects/ProspectListModal';
 import CampaignCard from '../components/campaigns/CampaignCard';
 import CampaignStrategyTab from '../components/campaigns/CampaignStrategyTab';
@@ -61,6 +62,7 @@ export default function CampaignsPage() {
   const [listModal, setListModal] = useState(EMPTY_MODAL);
   const [showAddProspect, setShowAddProspect] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showCsvImportModal, setShowCsvImportModal] = useState(false);
 
   const goTo = (params) => {
     setSearchParams(params);
@@ -468,6 +470,12 @@ export default function CampaignsPage() {
                   <LinkIcon size={15} /> Import from URL
                 </button>
                 <button
+                  onClick={() => setShowCsvImportModal(true)}
+                  className="flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm text-slate-300 transition hover:bg-slate-700"
+                >
+                  <FileSpreadsheet size={15} /> Import CSV
+                </button>
+                <button
                   onClick={() => pauseCampaignMutation.mutate(activeList._id)}
                   className="rounded-lg bg-slate-800 p-2 text-slate-400 transition hover:text-amber-300"
                   title="Pause pipeline for this campaign"
@@ -633,6 +641,13 @@ export default function CampaignsPage() {
         <CampaignImportModal
           campaign={activeList}
           onClose={() => setShowImportModal(false)}
+          onImported={invalidateAll}
+        />
+      )}
+      {showCsvImportModal && isManual && (
+        <CampaignCsvImportModal
+          campaign={activeList}
+          onClose={() => setShowCsvImportModal(false)}
           onImported={invalidateAll}
         />
       )}
