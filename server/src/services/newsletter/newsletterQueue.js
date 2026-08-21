@@ -56,13 +56,13 @@ newsletterWorker?.on('failed', (job, err) => {
  * previous job hadn't been reaped yet. Double-sends are prevented by the
  * campaign's own status check in the controller, which can return a visible 409.
  */
-export const queueNewsletterSend = async (campaignId, { scheduledFor = null } = {}) =>
+export const queueNewsletterSend = async (campaignId, { scheduledFor = null, jobId = null } = {}) =>
   newsletterQueue.add(
     'sendNewsletter',
     { campaignId: String(campaignId) },
     {
       delay: scheduledFor ? Math.max(0, new Date(scheduledFor).getTime() - Date.now()) : 0,
-      jobId: `nl:${campaignId}:${Date.now()}`,
+      jobId: jobId || `nl:${campaignId}:${Date.now()}`,
       attempts: 1,
       removeOnComplete: true,
       // Bounded, unlike the older queues' `removeOnFail: false` — failed jobs
@@ -107,7 +107,20 @@ const reconcileScheduledSends = async () => {
       const existing = campaign.sendJobId ? await newsletterQueue.getJob(campaign.sendJobId) : null;
       if (existing) continue;
 
-      const job = await queueNewsletterSend(campaign._id, { scheduledFor: campaign.scheduledFor });
+      // A DETERMINISTIC id here, unlike a normal send. Cloud Run runs several
+      // replicas and this reconciler is gated only on runWorkers, so all of them
+      // boot, all of them find the same job missing, and all of them re-queue —
+      // three copies of the same newsletter. BullMQ drops an add whose id
+      // already exists, which is normally the footgun that makes us avoid fixed
+      // ids; here it is precisely the lock we want, and it costs nothing because
+      // campaign + scheduled time uniquely identify this one intended send.
+      const job = await queueNewsletterSend(campaign._id, {
+        scheduledFor: campaign.scheduledFor,
+        jobId: `nl-fix:${campaign._id}:${new Date(campaign.scheduledFor).getTime()}`,
+      });
+
+      // job.id comes back as the existing job's id when another replica won the
+      // race, so this stays correct either way.
       await NewsletterCampaign.updateOne({ _id: campaign._id }, { $set: { sendJobId: job.id } });
       console.log(`[newsletter] Re-queued scheduled campaign ${campaign._id} (its job was missing from Redis).`);
     }
