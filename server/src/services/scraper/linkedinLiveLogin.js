@@ -18,17 +18,24 @@
  * one live login can run at a time. Multiple admins CAN watch/drive the same
  * session concurrently (x11vnc runs with -shared).
  *
- * Routes through the same rotating proxy as the headless scraper (see
- * proxyRotator.js) so the login IP matches the IP that will later use this
- * session — set LINKEDIN_USE_PROXY=false to disable, same flag as
- * linkedinScraper.js.
+ * Routes through the session's PINNED proxy (linkedinBrowserIdentity.js), so
+ * the login IP really is the IP that will later replay this session. It used
+ * to call the random rotator here and claim the same thing, which was simply
+ * untrue: the session was minted on one exit IP and scraped from a different
+ * subnet minutes later, LinkedIn invalidated it, and the admin was sent back
+ * to a checkpoint — the loop this module exists to escape. Set
+ * LINKEDIN_USE_PROXY=false to disable, same flag as linkedinScraper.js.
  */
 
 import puppeteer from 'puppeteer';
-import { saveSession } from './linkedinScraper.js';
-import { getProxy } from './proxyRotator.js';
-
-const USE_PROXY = process.env.LINKEDIN_USE_PROXY !== 'false';
+import { saveSession, restoreDeviceIdentity } from './linkedinScraper.js';
+import {
+  resolveSessionProxy,
+  buildLaunchArgs,
+  applyPageIdentity,
+  attachProxyAuth,
+  LOGIN_PROFILE_DIR,
+} from './linkedinBrowserIdentity.js';
 
 const LOGIN_URL = 'https://www.linkedin.com/login';
 const TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes to finish login + any challenge
@@ -86,41 +93,54 @@ export const start = async () => {
 
   state = { status: 'running', startedAt: new Date() };
 
-  // Same rotating Webshare proxy the headless scraper uses (proxyRotator.js)
-  // — logging in from a different IP than the one that later scrapes with
-  // this session is exactly the kind of mismatch LinkedIn's risk checks flag.
-  const proxy = USE_PROXY ? await getProxy().catch(() => null) : null;
+  // The session's pinned proxy — the same exit IP the headless scraper will
+  // use with the cookies we're about to capture. A session minted on one IP
+  // and replayed from another is exactly the mismatch LinkedIn's risk checks
+  // flag, and it lands the admin right back on this screen.
+  const proxy = await resolveSessionProxy();
+
+  const args = buildLaunchArgs({ proxy, windowSize: '1280,920' });
 
   try {
-    const args = [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-blink-features=AutomationControlled',
-      '--window-size=1280,920',
-    ];
-    if (proxy) args.push(`--proxy-server=${proxy.host}:${proxy.port}`);
-
-    browser = await puppeteer.launch({ headless: false, defaultViewport: null, args });
+    // Persistent profile so a second attempt after a failed challenge looks
+    // like the same machine rather than a freshly-minted one.
+    browser = await puppeteer.launch({
+      headless: false,
+      defaultViewport: null,
+      userDataDir: LOGIN_PROFILE_DIR,
+      args,
+    });
   } catch (e) {
-    console.warn('[linkedin-live] Could not launch visible browser:', e.message);
-    state = { status: 'failed', startedAt: state.startedAt };
-    clearTimers();
-    browser = null;
-    return getStatus();
+    // Chrome holds an exclusive lock on a profile dir — fall back to an
+    // ephemeral one rather than blocking the admin's only recovery path.
+    console.warn('[linkedin-live] Profile-backed launch failed, retrying without it:', e.message);
+    try {
+      browser = await puppeteer.launch({ headless: false, defaultViewport: null, args });
+    } catch (e2) {
+      console.warn('[linkedin-live] Could not launch visible browser:', e2.message);
+      state = { status: 'failed', startedAt: state.startedAt };
+      clearTimers();
+      browser = null;
+      return getStatus();
+    }
   }
 
   try {
-    const page = (await browser.pages())[0] || (await browser.newPage());
-    if (proxy) {
-      await page.authenticate({ username: proxy.username, password: proxy.password });
-    }
-    await page.setUserAgent(
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-    );
-    await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
+    // Covers every tab this browser opens from here on — see attachProxyAuth()
+    // for why the initial page's page.authenticate() alone isn't enough.
+    attachProxyAuth(browser, proxy);
 
-    const client = await page.createCDPSession();
-    await client.send('Network.clearBrowserCookies');
+    const page = (await browser.pages())[0] || (await browser.newPage());
+    // Identical treatment to the headless scraper's pages — that's the point:
+    // the browser that logs in and the browser that scrapes have to look like
+    // one machine. No invented user-agent; it's derived from the real binary,
+    // so the UA string and the Sec-CH-UA client hints can't contradict.
+    await applyPageIdentity(page, { browser, proxy });
+
+    // Present the device LinkedIn already knows. This replaces a
+    // Network.clearBrowserCookies call that wiped `bcookie` on every start,
+    // making each attempt an unrecognised device and mandating a challenge.
+    await restoreDeviceIdentity(page);
 
     await page.goto(LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
 

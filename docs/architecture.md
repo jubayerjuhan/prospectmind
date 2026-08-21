@@ -101,6 +101,7 @@ server/src/
     │   ├── contactFinder.js
     │   └── atsBoards.js
     ├── scraper/
+    │   ├── linkedinBrowserIdentity.js  # one consistent "device" per launch
     │   ├── linkedinScraper.js          # profile scraping
     │   ├── linkedinCompanyScraper.js   # company page scraping
     │   ├── linkedinLiveLogin.js        # remote-driven Chrome login (VNC)
@@ -206,7 +207,9 @@ api.js interceptor → POST /auth/refresh → retry original request transparent
 | `LINKEDIN_LI_AT` / `LINKEDIN_JSESSIONID` | scraper | Seed session |
 | `LINKEDIN_EMAIL` / `LINKEDIN_PASSWORD` | linkedinLiveLogin | Live login only |
 | `LINKEDIN_INTERACTIVE_LOGIN` | linkedinLiveLogin | No |
-| `LINKEDIN_USE_PROXY` / `WEBSHARE_PROXIES` | scraper | No |
+| `LINKEDIN_USE_PROXY` / `WEBSHARE_PROXIES` | linkedinBrowserIdentity | No |
+| `LINKEDIN_PROFILE_DIR` | linkedinBrowserIdentity | No (default `$TMPDIR/prospectmind-linkedin-profile`) |
+| `LINKEDIN_TIMEZONE` | linkedinBrowserIdentity | No (default `America/New_York`; only applied behind a proxy) |
 | **Billing / email** | | |
 | `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | stripe | Billing only |
 | `STRIPE_PRO_PRICE_ID` / `STRIPE_ENTERPRISE_PRICE_ID` | stripe | Billing only |

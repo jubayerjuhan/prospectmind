@@ -16,8 +16,16 @@
 
 import puppeteer from 'puppeteer';
 import { askClaude } from '../ai/claudeClient.js';
-import { getProxy } from './proxyRotator.js';
 import LinkedInSession from '../../models/LinkedInSession.js';
+import {
+  resolveSessionProxy,
+  clearSessionProxy,
+  pickDeviceCookies,
+  buildLaunchArgs,
+  applyPageIdentity,
+  attachProxyAuth,
+  LOGIN_PROFILE_DIR,
+} from './linkedinBrowserIdentity.js';
 
 // ─── Session Persistence (MongoDB, singleton doc) ────────────────────────────
 
@@ -63,10 +71,18 @@ const buildAuthCookies = ({ liAt, jsessionId }) => {
 
 export const saveSession = async (cookies) => {
   try {
+    const clean = sanitizeCookies(cookies);
+    // Bank the device-identity cookies (bcookie et al) separately. `cookies` is
+    // wiped whenever the session dies; these have to outlive that, because
+    // re-presenting the same bcookie on the next login is what stops LinkedIn
+    // treating every login as a brand-new device (and challenging it).
+    const deviceCookies = pickDeviceCookies(clean);
+
     await LinkedInSession.findOneAndUpdate(
       {},
       {
-        cookies: sanitizeCookies(cookies),
+        cookies: clean,
+        ...(deviceCookies.length ? { deviceCookies } : {}),
         status: 'active',
         lastVerifiedAt: new Date(),
         // Reconcile the env-cookie marker on every save: once a session is
@@ -96,9 +112,26 @@ const loadSession = async () => {
   return null;
 };
 
+// The device-identity cookies survive a dead session on purpose — see
+// saveSession() and linkedinBrowserIdentity.js.
+const loadDeviceCookies = async () => {
+  try {
+    const doc = await LinkedInSession.findOne({}).select('deviceCookies').lean();
+    return sanitizeCookies(doc?.deviceCookies || []);
+  } catch (e) {
+    console.warn('[linkedin] Could not load device cookies:', e.message);
+    return [];
+  }
+};
+
 const clearSession = async () => {
   try {
+    // Note: deviceCookies is deliberately NOT cleared. A revoked auth session
+    // doesn't make the browser a different browser, and re-presenting the same
+    // bcookie on the next login is what keeps it from being challenged.
     await LinkedInSession.findOneAndUpdate({}, { cookies: null, status: 'dead' }, { upsert: true });
+    // The next identity starts fresh anyway, so let it pick a new exit IP.
+    await clearSessionProxy();
     console.log('[linkedin] Cleared stale session in database');
   } catch (e) {
     console.warn('[linkedin] Could not clear session:', e.message);
@@ -106,38 +139,33 @@ const clearSession = async () => {
 };
 
 // ─── Browser Factory ──────────────────────────────────────────────────────────
-// Routes through a rotating Webshare proxy by default — reduces how often
-// LinkedIn's bot detection flags this traffic vs. the server's raw IP. Set
-// LINKEDIN_USE_PROXY=false to disable (e.g. while troubleshooting).
-
-const USE_PROXY = process.env.LINKEDIN_USE_PROXY !== 'false';
+// Routes through the session's PINNED Webshare proxy (not a fresh random one
+// per launch — see linkedinBrowserIdentity.js for why that mattered). Set
+// LINKEDIN_USE_PROXY=false to disable, e.g. while troubleshooting a challenge
+// loop, where going direct from the server's own IP is the fastest way to tell
+// an IP-reputation problem apart from a fingerprint problem.
 
 const launchBrowser = async () => {
-  const proxy = USE_PROXY ? await getProxy().catch(() => null) : null;
+  const proxy = await resolveSessionProxy();
 
-  const args = [
-    '--no-sandbox',
-    '--disable-setuid-sandbox',
-    '--disable-blink-features=AutomationControlled',
-    '--disable-dev-shm-usage',
-    '--window-size=1280,900',
-  ];
-  if (proxy) args.push(`--proxy-server=${proxy.host}:${proxy.port}`);
-
-  const browser = await puppeteer.launch({ headless: true, args });
+  // defaultViewport: null so the page size derives from --window-size alone.
+  // Overriding the viewport separately leaves window.innerWidth disagreeing
+  // with screen.width, which is one more inconsistency to be scored on.
+  const browser = await puppeteer.launch({
+    headless: true,
+    defaultViewport: null,
+    args: buildLaunchArgs({ proxy, windowSize: '1280,900' }),
+  });
   return { browser, proxy };
 };
 
 const setupPage = async (browser, proxy = null) => {
   const page = await browser.newPage();
-  if (proxy) {
-    await page.authenticate({ username: proxy.username, password: proxy.password });
-  }
-  await page.setViewport({ width: 1280, height: 900 });
-  await page.setUserAgent(
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-  );
-  await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
+  // No invented user-agent. applyPageIdentity derives it from the running
+  // binary so the UA string, the Sec-CH-UA client hints and navigator.platform
+  // all agree — the hardcoded "macOS Chrome 124" that used to live here
+  // contradicted every one of them.
+  await applyPageIdentity(page, { browser, proxy });
   return page;
 };
 
@@ -164,6 +192,12 @@ const loginToLinkedIn = async (page) => {
   } catch (e) {
     console.warn('[linkedin] Could not clear browser cookies:', e.message);
   }
+
+  // …then put the DEVICE identity straight back. The clear above only needs to
+  // drop the dead auth cookies so the form renders; taking `bcookie` with it is
+  // collateral damage that makes us an unrecognised device on every attempt,
+  // which is what escalates a routine login into a challenge loop.
+  await restoreDeviceIdentity(page);
 
   await page.goto('https://www.linkedin.com/login', { waitUntil: 'networkidle2', timeout: 30000 });
   await new Promise(r => setTimeout(r, 2500)); // let form fully render
@@ -324,31 +358,73 @@ const INTERACTIVE_LOGIN_ENABLED = process.env.LINKEDIN_INTERACTIVE_LOGIN !== 'fa
 const INTERACTIVE_LOGIN_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes to finish login + any challenge
 const INTERACTIVE_LOGIN_POLL_MS = 3000;
 
+// Seeds a fresh browser with the device-identity cookies from a previous
+// successful login. Auth cookies are excluded by pickDeviceCookies(), so this
+// never short-circuits the login form with a revoked li_at — it only makes the
+// browser recognisable. Exported for the live-login flow, which needs the
+// identical treatment for the fingerprints to match.
+export const restoreDeviceIdentity = async (page) => {
+  try {
+    const deviceCookies = await loadDeviceCookies();
+    if (!deviceCookies.length) {
+      console.log('[linkedin] No stored device cookies yet — this login establishes the device.');
+      return;
+    }
+    const client = await page.createCDPSession();
+    await client.send('Network.setCookies', {
+      cookies: deviceCookies.map((c) => ({ ...c, domain: c.domain || '.linkedin.com', path: c.path || '/' })),
+    });
+    console.log(`[linkedin] Restored ${deviceCookies.length} device cookies — presenting as a returning device.`);
+  } catch (e) {
+    console.warn('[linkedin] Could not restore device identity:', e.message);
+  }
+};
+
 const openInteractiveLoginWindow = async () => {
   console.log('[linkedin] 🖥️  Opening a visible LinkedIn login window — please log in and complete any security check.');
   console.log(`[linkedin]     Waiting up to ${INTERACTIVE_LOGIN_TIMEOUT_MS / 60000} minutes for you to reach your feed...`);
 
+  // Same pinned proxy the headless scraper uses, so the session is minted on
+  // the IP that will later replay it.
+  const proxy = await resolveSessionProxy();
+  const launchArgs = buildLaunchArgs({ proxy, windowSize: '1300,920' });
+
   let browser;
   try {
+    // Persistent profile: localStorage/IndexedDB continuity across back-to-back
+    // login attempts is exactly what's missing during a challenge loop.
     browser = await puppeteer.launch({
       headless: false,
       defaultViewport: null,
-      args: ['--disable-blink-features=AutomationControlled', '--window-size=1300,920'],
+      userDataDir: LOGIN_PROFILE_DIR,
+      args: launchArgs,
     });
   } catch (e) {
-    console.warn('[linkedin] Could not open a visible browser window in this environment:', e.message);
-    return false;
+    // Chrome takes an exclusive lock on a profile dir; if one is already held
+    // (a live-login browser still open), fall back to an ephemeral profile
+    // rather than failing the login outright.
+    console.warn('[linkedin] Profile-backed launch failed, retrying without it:', e.message);
+    try {
+      browser = await puppeteer.launch({ headless: false, defaultViewport: null, args: launchArgs });
+    } catch (e2) {
+      console.warn('[linkedin] Could not open a visible browser window in this environment:', e2.message);
+      return false;
+    }
   }
 
   try {
-    const page = (await browser.pages())[0] || (await browser.newPage());
-    await page.setUserAgent(
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-    );
-    await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
+    // Covers every tab this browser opens from here on — see attachProxyAuth()
+    // for why the initial page's page.authenticate() alone isn't enough.
+    attachProxyAuth(browser, proxy);
 
-    const client = await page.createCDPSession();
-    await client.send('Network.clearBrowserCookies');
+    const page = (await browser.pages())[0] || (await browser.newPage());
+    await applyPageIdentity(page, { browser, proxy });
+
+    // Restore the device cookies (bcookie et al) BEFORE the login page loads,
+    // so LinkedIn sees a device it already knows. We used to do the exact
+    // opposite here — Network.clearBrowserCookies — which minted a brand-new
+    // browser identity on every attempt and guaranteed a new-device challenge.
+    await restoreDeviceIdentity(page);
 
     await page.goto('https://www.linkedin.com/login', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
 
@@ -859,11 +935,39 @@ export const withLinkedInSession = async (fn, { persist = () => true } = {}) => 
   }
 };
 
+/**
+ * Make a stored profile URL safe to hand to page.goto().
+ *
+ * Puppeteer rejects a schemeless URL outright ("Cannot navigate to invalid
+ * URL"), and a manually-entered prospect frequently arrives as a bare
+ * `linkedin.com/in/<handle>` — someone copied it out of the address bar, where
+ * Chrome hides the scheme. That killed the whole enrichment for that prospect
+ * while every other layer reported success, so the failure read as "LinkedIn
+ * has no data on them" rather than "we never asked LinkedIn".
+ *
+ * Scheme and subdomain are rewritten in one pass for the same reason
+ * prospectFinder's normalizeProfileUrl does it: handling them separately
+ * leaves `http://www.` matching neither rule.
+ */
+const toAbsoluteProfileUrl = (raw = '') => {
+  const trimmed = String(raw).trim();
+  if (!trimmed) return '';
+
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed.replace(/^\/+/, '')}`;
+
+  return withScheme
+    .replace(/^https?:\/\/([a-z0-9-]+\.)?linkedin\.com/i, 'https://www.linkedin.com')
+    .split('#')[0]
+    .split('?')[0]
+    .replace(/\/$/, '');
+};
+
 export const scrapeLinkedIn = async (linkedinUrl) => {
   const empty = { text: null, posts: [], contactInfo: null, companyLinks: [], authFailed: false };
   if (!linkedinUrl) return empty;
 
-  const url = linkedinUrl.split('?')[0].replace(/\/$/, '');
+  const url = toAbsoluteProfileUrl(linkedinUrl);
+  if (!url) return empty;
   console.log(`[linkedin] Scraping: ${url}`);
 
   const session = await withLinkedInSession(

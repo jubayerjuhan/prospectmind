@@ -92,3 +92,22 @@ export const getProxy = async () => {
 };
 
 export const getAllProxies = () => PROXIES;
+
+/**
+ * Look up a specific proxy by its "host:port" key.
+ *
+ * Used by the LinkedIn identity, which pins itself to one exit IP rather than
+ * rotating — an authenticated session replayed from a different subnet than
+ * the one that minted it is what LinkedIn's risk checks invalidate. Reads the
+ * full list, not the healthy subset, so a pinned proxy that merely failed the
+ * one-shot startup probe can still be re-verified live by the caller.
+ */
+export const findProxy = (key) => {
+  if (!key) return null;
+  const [host, port] = String(key).trim().split(':');
+  return PROXIES.find((p) => p.host === host && p.port === parseInt(port)) || null;
+};
+
+/** Live reachability probe for a single proxy (see findProxy). */
+export const isProxyReachable = (proxy) =>
+  proxy ? isReachable(proxy.host, proxy.port) : Promise.resolve(false);

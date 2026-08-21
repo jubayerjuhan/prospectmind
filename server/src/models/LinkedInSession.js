@@ -15,6 +15,17 @@ const linkedInSessionSchema = new mongoose.Schema(
     // notifyLinkedInSessionDead's debounce upsert, before any real session has
     // ever been saved) has no cookies yet and must not read as healthy.
     status: { type: String, enum: ['active', 'dead'], default: 'dead' },
+    // "host:port" of the proxy this identity is pinned to. The session must be
+    // used from the same exit IP that minted it — LinkedIn invalidates a session
+    // whose IP jumps subnets, which bounces us to a checkpoint. Null means "not
+    // pinned yet"; the next launch picks one and stores it here. Cleared with
+    // the cookies, since a new identity may as well start on a fresh IP.
+    proxy: { type: String, default: null },
+    // Device-identity cookies (bcookie et al) kept separately from `cookies` so
+    // they outlive a revoked session. Re-injected before a fresh login so
+    // LinkedIn sees a returning device instead of demanding a new-device
+    // challenge every single time. See services/scraper/linkedinBrowserIdentity.js.
+    deviceCookies: { type: mongoose.Schema.Types.Mixed, default: null },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     lastVerifiedAt: Date,
     lastAlertSentAt: Date,
