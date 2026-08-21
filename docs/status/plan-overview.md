@@ -3,7 +3,7 @@
 > **Single source of truth** for what's built, what's in flight, and what's next.
 > Replaces the former `current.md`, `todos.md`, and `roadmap.md` (consolidated 2026-08-08 — they had drifted out of sync with each other and with the code).
 >
-> **Last verified against the codebase:** 2026-08-08 (commit `7498399`)
+> **Last verified against the codebase:** 2026-08-21 (newsletters)
 > Architecture detail for the v2 redesign lives in [`redesign-v2.md`](redesign-v2.md).
 
 ---
@@ -37,6 +37,7 @@ These shipped after the v2 phases and were never in the roadmap:
 
 - **LinkedIn scraping, in-house** — `linkedinScraper`, `linkedinCompanyScraper`, `linkedinResolver`, plus **live remote login**: a real Chrome inside the production container driven by an owner/admin over VNC. The roadmap had assumed Apify.
 - **LinkedIn browser identity** (`linkedinBrowserIdentity.js`) — fixes an infinite-CAPTCHA loop on live login. LinkedIn's challenge is an Arkose FunCaptcha, which responds to a contradictory fingerprint by serving challenges that can never be *passed*, rather than by blocking. Three contradictions were removed: (1) a hardcoded `Chrome/124` **macOS** user-agent sitting next to un-overridden `Sec-CH-UA` client hints that correctly reported **Linux, Chrome 139+** — the UA is now derived from the running binary, and headful browsers get no UA override at all; (2) `Network.clearBrowserCookies` before every login, which wiped `bcookie` and made every attempt an unrecognised device — device cookies now persist on the session doc (`deviceCookies`) and are re-injected pre-login, which survives a Cloud Run cold start in a way `userDataDir` cannot; (3) a randomly rotated proxy per launch, so a session minted on one exit IP was replayed from another subnet — the identity is now **pinned** to one proxy stored on `LinkedInSession.proxy`. `LINKEDIN_USE_PROXY=false` remains the fastest way to tell an IP-reputation problem apart from a fingerprint one.
+- **Newsletters** (`/api/newsletters`) — a second, deliberately separate sending surface: `NewsletterCampaign` + `NewsletterContact` + `NewsletterSuppression`, a TipTap composer producing sanitized HTML with `{{firstName}}` merge tags, one-off blasts sent now or scheduled via BullMQ **delayed jobs**, and a compliant unsubscribe. Recipients are **not** `Prospect`s: no pipeline, no enrichment, and no consumption of the prospect quota. Three decisions worth remembering: (1) unsubscribe **GET renders a confirmation page and mutates nothing** — Outlook Safe Links and Gmail prefetch every URL in a delivered email, so a GET-unsubscribes design silently opts out part of the list on delivery; POST performs it and also serves RFC 8058 one-click. (2) Suppression is **org-wide and keyed on the address**, not on the contact row, so a later import into a different campaign cannot resurrect someone who opted out. (3) Scheduling uses BullMQ delayed jobs rather than `node-cron` because `startUsageResetCron` is not gated by `RUN_WORKERS` and Cloud Run runs up to three replicas — a cron sweep would send every scheduled newsletter three times.
 - **Company Finder** (`/api/company-finder`) — pluggable source registry (currently `cryptojobslist`), browse → detail → save into Companies, plus website contact scanning.
 - **GitHub Talent Engine** — `GithubTalentCampaign` model, dedicated scraper + queue, AI keyword generation, run/pause/resume, and two frontend pages.
 - **BullMQ + Redis queue** — was Phase 4 "Scale"; already live. Workers are gated behind `RUN_WORKERS` so only the designated instance polls Redis.
@@ -87,7 +88,7 @@ Deliberate debt from the additive migration, now safe to pay down:
 - [ ] Install Stripe CLI + test the webhook locally
 
 ### 🟣 Priority 5 — Campaign sending
-Single-message email send works end-to-end. Generated **sequences** still can't be sent or scheduled.
+Single-message email send works end-to-end, and **Newsletters** now ship a full queued/scheduled bulk sender (see Shipped). Generated prospect **sequences** still can't be sent or scheduled — they remain copy for a human. The newsletter queue is the obvious thing to model that on when it happens.
 - [ ] Send + schedule campaign outreach sequences
 - [ ] Reply detection (webhook/polling)
 - [ ] LinkedIn / Telegram sending channels
@@ -116,7 +117,9 @@ Pipeline webhooks · team collaboration (comments, assignment) · CRM integratio
 On-chain activity scoring · token-holder analysis · conference-speaker DB · podcast-guest tracking · DAO contributor graph · on-chain hiring signals.
 
 ### 🚫 Will NOT be built
-Mass email/spam tools · fake profile generation · ToS-bypassing scraping · anything trading message quality for volume.
+Cold mass-mail / spam tooling · fake profile generation · ToS-bypassing scraping · anything trading message quality for volume.
+
+> **Amended 2026-08-21.** This line used to read "Mass email/spam tools", which the Newsletters feature would have contradicted. The distinction that matters is consent, not volume: sending an opt-in newsletter to a list the operator brought, with a working unsubscribe and a permanent org-wide suppression list, is in scope. Blasting scraped or purchased addresses is not, and nothing in the product helps you do it — newsletter recipients have to be supplied by the operator and can never be created from prospecting output.
 
 ---
 

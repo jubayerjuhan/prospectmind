@@ -70,6 +70,10 @@ server/src/
 │   ├── Playbook.js           # business context, tone, CTA for outreach
 │   ├── Signal.js             # detectable condition + appliesTo (prospect | company)
 │   ├── GithubTalentCampaign.js
+│   ├── NewsletterCampaign.js # bulk email: content, sender, status, schedule, stats
+│   ├── NewsletterContact.js  # recipient + per-send state. Scoped to ONE campaign,
+│   │                         #     own collection so a send is a small targeted write
+│   ├── NewsletterSuppression.js # org-wide do-not-mail list, keyed on the address
 │   └── LinkedInSession.js    # shared cookie jar + health/failure state
 ├── routes/                   # index.js mounts all groups under /api
 ├── controllers/
@@ -100,6 +104,11 @@ server/src/
     │   ├── prospectFinder.js     # find the right PEOPLE at a known company
     │   ├── contactFinder.js
     │   └── atsBoards.js
+    ├── newsletter/
+    │   ├── newsletterQueue.js          # send queue + delayed scheduling + boot reconciler
+    │   ├── newsletterSender.js         # the paced, resumable send loop
+    │   ├── renderNewsletter.js         # sanitize → merge → wrap → plain-text
+    │   └── unsubscribeToken.js         # stateless HMAC over the contact id
     ├── scraper/
     │   ├── linkedinBrowserIdentity.js  # one consistent "device" per launch
     │   ├── linkedinScraper.js          # profile scraping
@@ -204,6 +213,13 @@ api.js interceptor → POST /auth/refresh → retry original request transparent
 | **Enrichment sources** | | |
 | `SERPER_API_KEY` | discovery.js | Recommended (degrades gracefully) |
 | `GITHUB_TOKEN` | enrichment.js | No (60 → 5000 req/hr) |
+| **Newsletters** | | |
+| `PUBLIC_API_URL` | unsubscribeToken | This server's public origin — `CLIENT_URL` is the SPA and is the wrong host for the unsubscribe route |
+| `NEWSLETTER_UNSUBSCRIBE_SECRET` | unsubscribeToken | Signs unsubscribe links. **Never rotate it** — that invalidates every link already in a recipient's inbox. Falls back to `JWT_SECRET` in dev |
+| `RESEND_NEWSLETTER_FROM_EMAIL` | emailService | Separate verified subdomain, so newsletter complaints can't damage password-reset deliverability. Defaults to `RESEND_FROM_EMAIL` |
+| `NEWSLETTER_SEND_RATE` | newsletterSender | Emails/sec, default 1.5 — below Resend's ~2/s account cap, which is shared with transactional mail |
+| `NEWSLETTER_DRY_RUN` | emailService | `true` logs instead of sending |
+| **LinkedIn** | | |
 | `LINKEDIN_LI_AT` / `LINKEDIN_JSESSIONID` | scraper | Seed session |
 | `LINKEDIN_EMAIL` / `LINKEDIN_PASSWORD` | linkedinLiveLogin | Live login only |
 | `LINKEDIN_INTERACTIVE_LOGIN` | linkedinLiveLogin | No |

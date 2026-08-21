@@ -3,9 +3,50 @@ import { Resend } from 'resend';
 const resend = new Resend(process.env.RESEND_API_KEY);
 const FROM = process.env.RESEND_FROM_EMAIL || 'noreply@prospectmind.ai';
 
+// Newsletters can be pointed at a separate verified subdomain so that a blast
+// which attracts spam complaints cannot damage the reputation of the domain
+// that also delivers password resets. Falls back to the shared address.
+const NEWSLETTER_FROM = process.env.RESEND_NEWSLETTER_FROM_EMAIL || FROM;
+
+// Logs instead of sending. This is what makes it possible to exercise a
+// 500-recipient blast — pacing, status transitions, resume, cancel — without
+// spending Resend quota or risking a real send to a real list.
+const DRY_RUN = process.env.NEWSLETTER_DRY_RUN === 'true';
+
+export class EmailSendError extends Error {
+  constructor(message, { statusCode = null, code = null } = {}) {
+    super(message);
+    this.name = 'EmailSendError';
+    this.statusCode = statusCode;
+    this.code = code;
+  }
+}
+
+/**
+ * Send, and actually notice when it fails.
+ *
+ * The Resend SDK resolves with `{ data, error }` and does NOT throw on API
+ * errors, so every `return resend.emails.send(...)` in this file used to report
+ * a hard failure — bad key, invalid address, quota exhausted — as success. A
+ * bulk send built on that would report "1,000 sent" having delivered nothing,
+ * so failures have to surface as exceptions the caller can see.
+ */
+const deliver = async (payload, options) => {
+  const { data, error } = await resend.emails.send(payload, options);
+
+  if (error) {
+    throw new EmailSendError(error.message || 'Email delivery failed.', {
+      statusCode: error.statusCode ?? null,
+      code: error.name ?? null,
+    });
+  }
+
+  return data;
+};
+
 /* ── Welcome ─────────────────────────────────────────────────────── */
 export const sendWelcomeEmail = async ({ name, email }) => {
-  return resend.emails.send({
+  return deliver({
     from: FROM,
     to: email,
     subject: 'Welcome to ProspectMind 🎯',
@@ -36,7 +77,7 @@ export const sendWelcomeEmail = async ({ name, email }) => {
 
 /* ── Email verification ───────────────────────────────────────────── */
 export const sendVerificationEmail = async ({ name, email, verifyUrl }) => {
-  return resend.emails.send({
+  return deliver({
     from: FROM,
     to: email,
     subject: 'Verify your ProspectMind email',
@@ -69,7 +110,7 @@ export const sendVerificationEmail = async ({ name, email, verifyUrl }) => {
 
 /* ── Password reset ───────────────────────────────────────────────── */
 export const sendPasswordResetEmail = async ({ name, email, resetUrl }) => {
-  return resend.emails.send({
+  return deliver({
     from: FROM,
     to: email,
     subject: 'Reset your ProspectMind password',
@@ -102,7 +143,7 @@ export const sendPasswordResetEmail = async ({ name, email, resetUrl }) => {
 
 /* ── LinkedIn session expired (ops alert) ──────────────────────────── */
 export const sendLinkedInSessionExpiredEmail = async ({ name, email }) => {
-  return resend.emails.send({
+  return deliver({
     from: FROM,
     to: email,
     subject: '⚠️ LinkedIn session needs a refresh — ProspectMind',
@@ -134,10 +175,53 @@ export const sendLinkedInSessionExpiredEmail = async ({ name, email }) => {
 
 /* ── Outreach ─────────────────────────────────────────────────────── */
 export const sendOutreachEmail = async ({ to, subject, body, fromName }) => {
-  return resend.emails.send({
+  return deliver({
     from: `${fromName} <${FROM}>`,
     to,
     subject,
     html: `<div style="font-family: sans-serif; font-size: 15px; line-height: 1.7; color: #333;">${body.replace(/\n/g, '<br/>')}</div>`,
   });
+};
+
+/* ── Newsletters ──────────────────────────────────────────────────── */
+
+/**
+ * One newsletter, to one recipient.
+ *
+ * Differs from sendOutreachEmail in three ways that matter for bulk mail:
+ * a real text/plain alternative, a reply-to that isn't a noreply address, and
+ * the List-Unsubscribe headers Gmail and Yahoo require of bulk senders.
+ *
+ * `idempotencyKey` is the safety net under the send worker's own bookkeeping:
+ * if the process dies between a successful send and the status write, the
+ * resumed job's retry hits the same key and Resend returns the original result
+ * instead of delivering a second copy.
+ */
+export const sendNewsletterEmail = async ({
+  to,
+  subject,
+  html,
+  text,
+  fromName,
+  replyTo,
+  headers = {},
+  idempotencyKey,
+}) => {
+  if (DRY_RUN) {
+    console.log(`[newsletter:dry-run] → ${to} · "${subject}"`);
+    return { id: `dryrun_${Date.now()}_${Math.random().toString(36).slice(2, 10)}` };
+  }
+
+  return deliver(
+    {
+      from: fromName ? `${fromName} <${NEWSLETTER_FROM}>` : NEWSLETTER_FROM,
+      to,
+      subject,
+      html,
+      text,
+      ...(replyTo ? { replyTo } : {}),
+      headers,
+    },
+    idempotencyKey ? { idempotencyKey } : undefined
+  );
 };

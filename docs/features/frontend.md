@@ -20,6 +20,7 @@
 | `/companies/:id` | `CompanyDetailPage.jsx` | 🔒 | Analysis, signals, contacts, LinkedIn resolution |
 | `/company-finder` | `CompanyFinderPage.jsx` | 🔒 | Browse external sources → save as Companies |
 | `/campaigns` | `CampaignsPage.jsx` | 🔒 | Gallery + workspace (Prospects / Strategy / Outreach tabs) |
+| `/newsletters` | `NewslettersPage.jsx` | 🔒 | Gallery + workspace (Content / Recipients tabs). Bulk opt-in email — see `newsletters.md` |
 | `/github-talent-engine` | `GithubTalentEnginePage.jsx` | 🔒 | GTE campaign list |
 | `/github-talent-engine/:id` | `GithubTalentCampaignDetailPage.jsx` | 🔒 | Run/pause/resume + live progress |
 | `/billing` | `BillingPage.jsx` | 🔒 | Plan cards + Stripe checkout |
@@ -38,18 +39,31 @@ components/
 ├── layout/        AppLayout · Sidebar · LinkedInSessionBanner · LinkedInSessionModal
 ├── prospects/     AddProspectModal · EditProspectModal · BulkUploadModal
 │                  ProspectListModal · CampaignImportModal · PersonaRadar
-│                  CampaignCsvImportModal — client-side CSV parse + column mapping,
-│                    posts to the campaign bulk-import endpoint
+│                  CampaignCsvImportModal — column mapping + preview; the CSV
+│                    parser itself now lives in lib/csv.js, shared with the
+│                    newsletter importer
 │                  ScoreCell — score + the context it was scored against; also
 │                    exports ScoringContextChip, reused on the detail page
 ├── campaigns/     CampaignCard · StrategyPicker · CampaignStrategyTab
 │                  CampaignOutreachTab · ProspectTable · prospectStatus.js
+├── newsletters/   NewsletterCard · NewsletterEditor (TipTap) · RecipientsTab
+│                  RecipientCsvImportModal · SendNewsletterModal
+│                  NewsletterPreviewModal · newsletterStatus.js
 ├── settings/      PersonasSettings · PlaybooksSettings · SignalsSettings
 │                  PromptSettingsSection
 ├── companyFinder/ CompanyFinderDetailModal
 ├── githubTalent/  GteCampaignModal
 └── ui/            MicButton (voice input → /api/ai/transcribe)
 ```
+
+### The newsletter editor is uncontrolled, deliberately
+
+`NewsletterEditor` takes `initialValue` and is re-seeded by **remount**
+(`key={newsletter._id}`), never by syncing the parent's value back in. TipTap
+cannot be a controlled input: `onUpdate → parent state → prop → setContent` races
+the user's next keystroke, so the editor rewrites its own document mid-edit and
+the caret jumps to the end. This was an actual bug caught in the browser, not a
+theoretical one.
 
 ### LinkedIn session surfacing — two components, deliberately
 

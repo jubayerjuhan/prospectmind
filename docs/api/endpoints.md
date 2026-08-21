@@ -59,6 +59,43 @@ A `ProspectList` **is** a campaign (v2 Phase D). It carries membership, strategy
 
 ---
 
+## Newsletters — `/api/newsletters`
+
+Bulk opt-in email, entirely separate from the prospecting pipeline. Recipients are
+`NewsletterContact`s scoped to one campaign — **not** `Prospect`s — and consume no
+prospect quota. Full design: `docs/features/newsletters.md`.
+
+### Public — no authentication
+
+These two sit **above** `router.use(protect)` in `routes/newsletters.js`, because a
+recipient clicking Unsubscribe in their mail client has no account. Authority comes
+from an HMAC over the contact id.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/newsletters/unsubscribe/:contactId/:sig` | Renders an HTML confirmation page. **Mutates nothing** — mail scanners and link prefetchers fetch every URL in a delivered email, so a GET that unsubscribed would opt out part of the list on delivery |
+| POST | `/newsletters/unsubscribe/:contactId/:sig` | Performs it. Idempotent. Serves both the browser form and RFC 8058 one-click; returns HTML for browsers, `{success:true}` otherwise |
+
+### Authenticated
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/newsletters` | List. Query `?page=&limit=&status=&search=` |
+| POST | `/newsletters` | Create `{ name, subject?, fromName?, replyTo? }`. 409 on duplicate name |
+| GET | `/newsletters/:id` | Detail + `recipientCount` |
+| PATCH | `/newsletters/:id` | Update. Sanitizes `bodyHtml` and regenerates `bodyText`. **409 once `sending`/`sent`**; 400 if a merge tag appears inside an `href`/`src` |
+| DELETE | `/newsletters/:id` | Soft archive. 409 while `sending` |
+| GET | `/newsletters/:id/contacts` | Paginated. Query `?page=&limit=&status=&search=` |
+| POST | `/newsletters/:id/contacts` | Add one `{ email, firstName?, lastName?, company? }`. 409 on duplicate; a suppressed address is added as `unsubscribed` rather than silently dropped |
+| POST | `/newsletters/:id/contacts/import` | CSV bulk. Body `{ contacts: [] }` — JSON, not multipart. Returns `{ created, skipped, invalid, suppressed }`. **No plan-limit clamp** |
+| DELETE | `/newsletters/:id/contacts` | Remove. Body `{ contactIds: [] }` |
+| GET | `/newsletters/:id/preview` | Renders exactly what would be sent, against the first contact. Sends nothing |
+| POST | `/newsletters/:id/send` | Enqueue now. 400 without a subject, body, or pending recipients |
+| POST | `/newsletters/:id/schedule` | Body `{ scheduledFor }` (ISO). Future, ≤90 days. BullMQ delayed job |
+| POST | `/newsletters/:id/cancel` | Removes a scheduled job, or cooperatively stops an in-flight send |
+
+---
+
 ## Companies — `/api/companies`
 
 | Method | Path | Description |

@@ -15,6 +15,8 @@ Initial use case: Web3 recruiting intelligence (powering GoodHive internally), b
 
 **Core domain objects** (post-v2 redesign): `Prospect` · `Company` · `ProspectList` (= a Campaign) · `Persona` · `Playbook` · `Signal`.
 
+A separate, intentionally disconnected surface: `NewsletterCampaign` · `NewsletterContact` · `NewsletterSuppression` — bulk opt-in email that never touches the AI pipeline or the prospect quota. See `docs/features/newsletters.md`.
+
 ---
 
 ## Monorepo Layout
@@ -54,6 +56,7 @@ prospectmind/
 | Billing — Stripe plans, webhooks, limits | `docs/features/billing.md` |
 | Prospect model, enrichment, classification | `docs/features/prospects.md` |
 | Outreach message generation logic | `docs/features/outreach.md` |
+| Newsletters — bulk email, unsubscribe, scheduling | `docs/features/newsletters.md` |
 | **What's done / in flight / next** | `docs/status/plan-overview.md` |
 | v2 HLD (Company/Persona/Playbook/Signal/Campaign) | `docs/status/redesign-v2.md` |
 | API endpoints reference | `docs/api/endpoints.md` |
@@ -68,7 +71,8 @@ prospectmind/
 - **Pipeline runs on a queue** — prospect creation enqueues a BullMQ job; `runner.js` executes the layers in sequence and updates `pipelineStatus` at each step
 - **Multi-tenant** — every DB query must be scoped to `organization: req.organization._id`. The single exception is `LinkedInSession`, a shared platform-level document.
 - **JWT auth** — access token (15m) + refresh token (7d). Use `protect` middleware on all private routes
-- **Plan limits** — check `org.canAddProspect()` before creating prospects
+- **Plan limits** — check `org.canAddProspect()` before creating prospects. Newsletter contacts are exempt by design — they are not prospects and cost no quota
+- **Email must be checked** — the Resend SDK returns `{ data, error }` and does **not** throw on API errors. Send through `deliver()` in `services/resend/emailService.js`, which throws; a bare `resend.emails.send()` reports failures as successes
 
 ### ⚠️ Gemini is the active AI provider, not Groq
 
@@ -136,6 +140,7 @@ Docs drift silently and then mislead. **Treat a doc update as part of the change
 | Added a model, service, or env var | `docs/architecture.md` |
 | Changed a pipeline layer or its ordering | `docs/features/pipeline.md` |
 | Added a page, route, or shared component | `docs/features/frontend.md` |
+| Changed newsletter sending, rendering, or unsubscribe | `docs/features/newsletters.md` |
 | Changed a core convention or the AI provider | This file (`CLAUDE.md`) |
 
 **Rules:**

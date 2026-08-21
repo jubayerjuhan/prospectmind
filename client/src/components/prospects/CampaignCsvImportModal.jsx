@@ -1,43 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
+import { parseCsvText, splitName } from '../../lib/csv';
 import toast from 'react-hot-toast';
 import { X, Upload, FileSpreadsheet } from 'lucide-react';
-
-/** RFC4180-ish CSV parser: handles quoted fields, embedded commas, "" escapes, and CRLF. */
-const parseCsvText = (text) => {
-  const rows = [];
-  let row = [];
-  let field = '';
-  let inQuotes = false;
-  const pushField = () => { row.push(field); field = ''; };
-  const pushRow = () => { pushField(); rows.push(row); row = []; };
-
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (inQuotes) {
-      if (c === '"') {
-        if (text[i + 1] === '"') { field += '"'; i++; }
-        else inQuotes = false;
-      } else {
-        field += c;
-      }
-    } else if (c === '"') {
-      inQuotes = true;
-    } else if (c === ',') {
-      pushField();
-    } else if (c === '\n') {
-      pushRow();
-    } else if (c === '\r') {
-      // swallow, \n handles the row break
-    } else {
-      field += c;
-    }
-  }
-  if (field.length || row.length) pushRow();
-
-  return rows.filter((r) => r.some((v) => v.trim() !== ''));
-};
 
 const TARGET_FIELDS = [
   { value: 'ignore', label: 'Ignore' },
@@ -74,11 +40,6 @@ const autoMapHeader = (header) => {
   if (h.includes('company') || h.includes('organization') || h.includes('organisation')) return 'company';
   if (h.includes('location') || h.includes('stackoverflow') || h.includes('wallet')) return 'context';
   return 'ignore';
-};
-
-const splitName = (name = '') => {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  return { firstName: parts[0] || '', lastName: parts.slice(1).join(' ') };
 };
 
 /** Turn one parsed CSV row + column mapping into an import candidate. */

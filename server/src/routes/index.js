@@ -11,6 +11,7 @@ import signalRoutes from './signals.js';
 import companyRoutes from './companies.js';
 import companyFinderRoutes from './companyFinder.js';
 import aiRoutes from './ai.js';
+import newsletterRoutes from './newsletters.js';
 
 const router = Router();
 
@@ -26,6 +27,8 @@ router.use('/signals', signalRoutes);
 router.use('/companies', companyRoutes);
 router.use('/company-finder', companyFinderRoutes);
 router.use('/ai', aiRoutes);
+// Note: /newsletters exposes two PUBLIC unsubscribe routes — see newsletters.js
+router.use('/newsletters', newsletterRoutes);
 
 router.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 

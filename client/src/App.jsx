@@ -14,6 +14,7 @@ import CompaniesPage from './pages/CompaniesPage';
 import CompanyDetailPage from './pages/CompanyDetailPage';
 import CompanyFinderPage from './pages/CompanyFinderPage';
 import CampaignsPage from './pages/CampaignsPage';
+import NewslettersPage from './pages/NewslettersPage';
 import GithubTalentEnginePage from './pages/GithubTalentEnginePage';
 import GithubTalentCampaignDetailPage from './pages/GithubTalentCampaignDetailPage';
 import ProspectDetailPage from './pages/ProspectDetailPage';
@@ -47,6 +48,7 @@ export default function App() {
             <Route path="companies/:id" element={<CompanyDetailPage />} />
             <Route path="company-finder" element={<CompanyFinderPage />} />
             <Route path="campaigns" element={<CampaignsPage />} />
+          <Route path="newsletters" element={<NewslettersPage />} />
             {/* Outreach merged into Campaigns — keep old links working. */}
             <Route path="outreach" element={<Navigate to="/campaigns" replace />} />
             <Route path="outreach/:id" element={<Navigate to="/campaigns" replace />} />
