@@ -98,9 +98,13 @@ logout()
 ### Status vocabulary — `components/campaigns/prospectStatus.js`
 
 One module owns `STATUS_COLOR`, `STATUS_LABEL`, `ACTIVE_PIPELINE_STATUSES`,
-`isPausing()` and `livePollInterval()`; the pool, campaign, dashboard and
-company pages all read from it so a status never reads differently in two
-places. `isPausing()` exists because a pause on a *running* prospect is only a
+`isPausing()`, `livePollInterval()` and `companyLabel()`; the pool, campaign,
+dashboard and company pages all read from it so a status never reads differently
+in two places. `companyLabel()` falls back from the raw `company` string to the
+linked `companyRef.name`, because the string is often empty for imported rows
+whose employer the pipeline resolved afterwards — and it suppresses a Company
+still named after its identity key (`id:89222342`), which is an internal handle
+rather than a name. `isPausing()` exists because a pause on a *running* prospect is only a
 request — the row keeps its active status until the layer finishes, and showing
 "Paused" there would be contradicted by the next poll.
 

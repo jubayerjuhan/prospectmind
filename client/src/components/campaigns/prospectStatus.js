@@ -60,3 +60,28 @@ export const isBusy = (prospect) => ACTIVE_PIPELINE_STATUSES.includes(prospect?.
 
 /** Poll fast while any row is moving, then stop — see the v5 note in frontend.md. */
 export const livePollInterval = (rows = []) => (rows.some(isBusy) ? 2500 : false);
+
+/**
+ * What to call a prospect's employer in a list.
+ *
+ * `company` is the raw string the prospect was created with — frequently empty
+ * for an imported or finder-sourced row. `companyRef` is the Company the
+ * pipeline actually resolved and linked, which is what the detail page shows.
+ * Falling back to it stops a row reading "—" for a prospect whose company is
+ * plainly visible one click away.
+ */
+// A Company created from an employer LinkedIn URL that never resolved to a real
+// name keeps its identity key as the name ("id:89222342"). That is an internal
+// handle, not something to show a user — "—" is the honest label until the
+// company analyzer fills the real name in.
+const isIdentityKeyName = (name = '') => /^id:\d+$/.test(name.trim());
+
+export const companyLabel = (prospect) => {
+  const raw = prospect?.company?.trim();
+  if (raw) return raw;
+
+  const linked = prospect?.companyRef?.name?.trim();
+  if (linked && !isIdentityKeyName(linked)) return linked;
+
+  return '—';
+};

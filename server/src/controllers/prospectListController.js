@@ -15,7 +15,14 @@ import { executeCampaignOutreach } from '../services/campaign/campaignExecutor.j
 // "pausing" — a run that is flagged but still finishing its current layer.
 // aiProviderUsed was always rendered by the table but never selected, so the AI
 // column sat empty in the campaign view while working in the pool view.
-const LIST_SUMMARY_PROJECTION = '_id firstName lastName company pipelineStatus pipelinePaused aiProviderUsed compatibilityScore outreachPriority primaryAngle';
+// companyRef comes along because `company` is only the raw string the prospect
+// was created with — often empty for an imported or finder-sourced row, whose
+// real employer is the resolved Company the pipeline linked afterwards. Without
+// it the table showed "—" for prospects whose detail page clearly names a company.
+const LIST_SUMMARY_PROJECTION = '_id firstName lastName company companyRef pipelineStatus pipelinePaused aiProviderUsed compatibilityScore outreachPriority primaryAngle';
+
+// Only the name is needed to label a row; keep the payload small.
+const COMPANY_REF_POPULATE = { path: 'companyRef', select: 'name' };
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -226,6 +233,7 @@ const resolveDynamicListProspects = async ({ organizationId, filters, page, limi
       .skip((page - 1) * limit)
       .limit(limit)
       .select(LIST_SUMMARY_PROJECTION)
+      .populate(COMPANY_REF_POPULATE)
       .lean(),
     Prospect.countDocuments(filter),
   ]);
@@ -256,6 +264,7 @@ const resolveManualListProspects = async ({ list, page, limit }) => {
     isArchived: false,
   })
     .select(LIST_SUMMARY_PROJECTION)
+    .populate(COMPANY_REF_POPULATE)
     .lean();
 
   const prospectMap = new Map(prospects.map((prospect) => [prospect._id.toString(), prospect]));

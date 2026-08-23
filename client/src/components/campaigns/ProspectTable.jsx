@@ -2,7 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { ChevronRight, ChevronLeft, Pause, Play, RefreshCw, Sparkles, Loader2, Trash2, MinusCircle } from 'lucide-react';
 import {
   STATUS_COLOR, STATUS_LABEL, PRIORITY_COLOR, ACTIVE_PIPELINE_STATUSES,
-  AI_PROVIDER_BADGE, isPausing,
+  AI_PROVIDER_BADGE, isPausing, companyLabel,
 } from './prospectStatus';
 
 /** The prospect table shared by the campaign view and the prospect pool. */
@@ -89,7 +89,7 @@ export default function ProspectTable({
                   <td className="px-4 py-3 font-medium text-white">
                     {prospect.firstName} {prospect.lastName}
                   </td>
-                  <td className="px-4 py-3 text-slate-400">{prospect.company || '—'}</td>
+                  <td className="px-4 py-3 text-slate-400">{companyLabel(prospect)}</td>
                   <td className="px-4 py-3 capitalize text-slate-400">
                     {prospect.primaryAngle || prospect.typeHint || '—'}
                   </td>

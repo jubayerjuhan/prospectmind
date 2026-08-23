@@ -25,7 +25,11 @@ export const getProspects = async (req, res) => {
         .limit(parseInt(limit))
         // pipelineActivity is a per-run narration only the detail page reads —
         // shipping it for every row would bloat the list payload for nothing.
-        .select('-messages -pipelineActivity'),
+        .select('-messages -pipelineActivity')
+        // `company` is only the raw string the prospect was created with, and is
+        // often empty for imported rows whose employer the pipeline resolved
+        // afterwards. Populate the link so the list can name it.
+        .populate('companyRef', 'name'),
       Prospect.countDocuments(filter),
     ]);
 

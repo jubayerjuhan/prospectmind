@@ -9,7 +9,7 @@ import BulkUploadModal from '../components/prospects/BulkUploadModal';
 import ScoreCell from '../components/prospects/ScoreCell';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import {
-  STATUS_LABEL, ACTIVE_PIPELINE_STATUSES, isPausing, livePollInterval,
+  STATUS_LABEL, ACTIVE_PIPELINE_STATUSES, isPausing, livePollInterval, companyLabel,
 } from '../components/campaigns/prospectStatus';
 
 const STATUS_COLOR = {
@@ -207,7 +207,7 @@ export default function ProspectsPage() {
                   onClick={() => navigate(`/prospects/${prospect._id}`)}
                 >
                   <td className="px-4 py-3 text-white font-medium">{prospect.firstName} {prospect.lastName}</td>
-                  <td className="px-4 py-3 text-slate-400">{prospect.company || '—'}</td>
+                  <td className="px-4 py-3 text-slate-400">{companyLabel(prospect)}</td>
                   <td className="px-4 py-3 text-slate-400 capitalize">{prospect.primaryAngle || prospect.typeHint || '—'}</td>
                   <td className="px-4 py-3">
                     <ScoreCell
