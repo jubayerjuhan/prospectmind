@@ -8,18 +8,57 @@
 
 ## Overview
 
-Creating a prospect enqueues a pipeline job. The runner updates `pipelineStatus` in MongoDB at each step so the frontend can show live progress.
+**Enrichment is opt-in.** Creating a prospect does *not* enqueue anything — it lands in `not-started` and waits for `POST /prospects/:id/start`, or for `POST /prospect-lists/:id/start` which starts every not-started prospect in a campaign at once. Auto-running on create meant a 500-row CSV spent a month of quota and AI budget on rows nobody had looked at yet. Once started, the runner updates `pipelineStatus` at each step so the frontend can show live progress.
 
 ```
 Status progression:
-pending → discovering → enriching → classifying → scoring → ready
-                                                          ↘ failed (on error)
-                                                          ↘ paused (on request)
+not-started → pending → discovering → enriching → classifying → scoring → ready
+   (created)  (queued)                                        ↘ failed (on error)
+                                                              ↘ paused (on request)
 ```
+
+### Pausing
+
+Two different mechanisms, because a queued run and a running one need opposite treatment (`services/pipeline/pauseControl.js`):
+
+| The prospect is… | What happens | What the user sees |
+|---|---|---|
+| Queued (`pending`) | The BullMQ job is removed outright and the status flips to `paused` in the same write | `Paused`, on the next poll |
+| Mid-run | Cooperative: `pipelinePaused` is set and the runner stops at the next layer boundary (`pauseIfRequested`) | `Pausing…` until the layer returns, then `Paused` |
+
+The queue runs one prospect at a time, so a campaign works through its prospects in order. Pausing one takes **only that one** out — the rest keep moving, and the worker picks up the next unpaused prospect immediately.
+
+Each run is filed under a single job id (`jobId.js`), which is what makes a queued run cancellable and makes a double click on Start impossible to turn into two runs. That module is separate from `queue.js` only so it can be unit-tested without opening a Redis connection.
 
 Layers call `askAI()` / `askClaude()`, which route to **Gemini** — Groq is held back behind the `GROQ_ENABLED` flag in `claudeClient.js`, so `preferredAiModel` on a campaign is currently ignored. If a model fails, the client retries its configured fallback chain before failing the pipeline. **Never import a provider SDK directly.**
 
 **Layer 5 does not run automatically.** Outreach is generated on demand — per prospect (`POST /prospects/:id/generate-messages`) or per campaign (`POST /prospect-lists/:id/outreach/generate`) — so a prospect reaches `ready` after scoring and signals.
+
+### Activity log — what the user sees while it runs
+
+`pipelineStatus` alone gave the UI one word (`enriching`) for what is often the
+longest minutes of the run. The runner also writes a plain-language trace to
+`prospect.pipelineActivity[]` — `{ at, step, message, level }`, capped at the
+last 60 entries and cleared at the start of each run.
+
+- Emitted with `logActivity(message, { step, level })` from
+  `services/pipeline/activityLog.js`.
+- The context is bound once, in `runPipeline()`, via `AsyncLocalStorage` — so
+  any layer can narrate without a logger being threaded through its signature,
+  and `logActivity()` is a **silent no-op outside a pipeline run**. That matters
+  because `scrapePage` / `searchGoogle` are shared with company analysis and the
+  GitHub talent queue, which have no prospect to log against. A module-level
+  global would have cross-contaminated concurrent BullMQ jobs; the run-scoped
+  store keeps each prospect's trace to itself.
+- Writes are **fire-and-forget** `$push`es. Narration must never slow down or
+  fail the work it narrates — a dropped line is invisible, an awaited write per
+  step would add a round-trip each time.
+- Messages are written **for the end user**, not for us: no layer numbers, no
+  scraper engine names, no prompt sizes. The console logs remain the technical
+  track; these two are deliberately separate. When adding one, ask whether a
+  customer reading it would learn something they could act on.
+- Excluded from the prospect **list** payload (`-pipelineActivity`) — only the
+  detail page reads it.
 
 ### Company linking
 
@@ -220,6 +259,9 @@ Company-scoped Signals (`appliesTo: "company"`) run separately: chained onto com
 3. Import and call it in `runner.js` between the existing steps
 4. Add a new `pipelineStatus` enum value to `models/Prospect.js`
 5. Call `updateStatus(prospectId, 'your_new_status')` before running it
+6. Add a `step` value to the `pipelineActivity.step` enum plus a `STEP_LABEL`
+   entry in `client/src/components/prospects/PipelineActivity.jsx`, and call
+   `logActivity()` at the points a user would want narrated
 
 ---
 

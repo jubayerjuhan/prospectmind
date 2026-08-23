@@ -1,7 +1,8 @@
 import Prospect from '../models/Prospect.js';
 import ProspectList from '../models/ProspectList.js';
 import Company from '../models/Company.js';
-import { queuePipelineRun } from '../services/pipeline/queue.js';
+import { queuePipelineRun, cancelQueuedPipelineRun } from '../services/pipeline/queue.js';
+import { pauseProspectRun } from '../services/pipeline/pauseControl.js';
 import { ensureCompanyLink } from '../services/company/companyResolver.js';
 import { sendOutreachEmail } from '../services/resend/emailService.js';
 import { generateOutreachMessages } from '../services/pipeline/outreach.js';
@@ -22,7 +23,9 @@ export const getProspects = async (req, res) => {
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(parseInt(limit))
-        .select('-messages'),
+        // pipelineActivity is a per-run narration only the detail page reads —
+        // shipping it for every row would bloat the list payload for nothing.
+        .select('-messages -pipelineActivity'),
       Prospect.countDocuments(filter),
     ]);
 
@@ -102,11 +105,9 @@ export const createProspect = async (req, res) => {
 
     await ensureCompanyLink(prospect);
 
-    // Kick off pipeline async (don't await)
-    queuePipelineRun(prospect._id).catch((err) =>
-      console.error(`Queue error for ${prospect._id}:`, err.message)
-    );
-
+    // Enrichment is opt-in: the prospect lands in 'not-started' and waits for an
+    // explicit Start (POST /:id/start). Auto-running on create spent AI budget
+    // and plan quota on rows the user had not even reviewed yet.
     res.status(201).json({ success: true, data: prospect });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -197,10 +198,10 @@ export const bulkCreateProspects = async (req, res) => {
     // insertMany bypasses document middleware, so the link has to be explicit.
     for (const p of created) await ensureCompanyLink(p).catch(() => null);
 
-    // Fire pipeline for each
-    created.forEach((p) => {
-      queuePipelineRun(p._id).catch((err) => console.error(`Queue error for ${p._id}:`, err.message))
-    });
+    // No pipeline run here — a bulk upload of hundreds of rows is exactly the
+    // case where auto-enrichment used to burn a month's quota in one click.
+    // They land in 'not-started'; the user starts them per prospect or per
+    // campaign.
 
     res.status(201).json({
       success: true,
@@ -211,8 +212,12 @@ export const bulkCreateProspects = async (req, res) => {
   }
 };
 
-// POST /api/prospects/:id/retry
-export const retryPipeline = async (req, res) => {
+// POST /api/prospects/:id/start  ·  POST /api/prospects/:id/retry
+//
+// One handler for both: starting a 'not-started' prospect and re-running a
+// finished or failed one are the same operation — gate, reset, enqueue. Only
+// the wording the user sees differs.
+export const startPipeline = async (req, res) => {
   try {
     const prospect = await Prospect.findOne({ _id: req.params.id, organization: req.organization._id });
     if (!prospect) return res.status(404).json({ success: false, message: 'Prospect not found.' });
@@ -229,6 +234,8 @@ export const retryPipeline = async (req, res) => {
       });
     }
 
+    const isFirstRun = prospect.pipelineStatus === 'not-started';
+
     await Prospect.findByIdAndUpdate(prospect._id, {
       pipelineStatus: 'pending',
       pipelineError: null,
@@ -237,7 +244,10 @@ export const retryPipeline = async (req, res) => {
     });
     queuePipelineRun(prospect._id).catch(console.error);
 
-    res.json({ success: true, message: 'Pipeline restarted.' });
+    res.json({
+      success: true,
+      message: isFirstRun ? 'Enrichment started.' : 'Pipeline restarted.',
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -253,18 +263,24 @@ export const pausePipeline = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Pipeline is already paused.' });
     }
 
+    if (prospect.pipelineStatus === 'not-started') {
+      return res.status(400).json({ success: false, message: 'This prospect has not been started yet.' });
+    }
+
     if (!ACTIVE_PIPELINE_STATUSES.includes(prospect.pipelineStatus)) {
       return res.status(400).json({ success: false, message: 'Only active pipeline runs can be paused.' });
     }
 
-    await Prospect.findByIdAndUpdate(prospect._id, {
-      pipelinePaused: true,
-      pipelinePausedAt: new Date(),
-    });
+    // Queued but not yet running → stopped and marked paused immediately.
+    // Already running → paused at the next layer boundary (see pauseControl.js).
+    const { immediate } = await pauseProspectRun(prospect);
 
     res.json({
       success: true,
-      message: 'Pause requested. The pipeline will pause after the current step finishes.',
+      immediate,
+      message: immediate
+        ? 'Paused.'
+        : 'Pause requested. The pipeline will pause after the current step finishes.',
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -377,13 +393,35 @@ export const sendMessage = async (req, res) => {
 };
 
 // DELETE /api/prospects/:id
+// DELETE /api/prospects/:id
+//
+// Archive, not a hard delete: the row keeps its enrichment history and can be
+// recovered, but it leaves every view the user has. Three things have to happen
+// together, or the deletion is only half done:
+//   1. the flag, which is what every list query filters on
+//   2. removal from every campaign's prospects[] — otherwise the campaign's
+//      prospectCount keeps counting a prospect nobody can see
+//   3. cancelling a queued run, so we don't spend AI budget enriching a
+//      prospect the user just deleted
 export const archiveProspect = async (req, res) => {
   try {
-    await Prospect.findOneAndUpdate(
+    const prospect = await Prospect.findOneAndUpdate(
       { _id: req.params.id, organization: req.organization._id },
-      { isArchived: true }
+      { isArchived: true, pipelinePaused: true, pipelinePausedAt: new Date() },
+      { new: true }
     );
-    res.json({ success: true, message: 'Prospect archived.' });
+    if (!prospect) return res.status(404).json({ success: false, message: 'Prospect not found.' });
+
+    await ProspectList.updateMany(
+      { organization: req.organization._id, prospects: prospect._id },
+      { $pull: { prospects: prospect._id } }
+    );
+
+    // Best-effort: a run already under way stops at its next layer boundary via
+    // the pipelinePaused flag set above.
+    await cancelQueuedPipelineRun(prospect._id).catch(() => false);
+
+    res.json({ success: true, message: 'Prospect deleted.' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

@@ -11,7 +11,6 @@ import { findCompanyProspects } from '../services/company/prospectFinder.js';
 import { findDuplicateGroups, mergeCompanies } from '../services/company/companyMerger.js';
 import { ensureCompanyLink } from '../services/company/companyResolver.js';
 import { detectCompanySignals } from '../services/pipeline/signalDetector.js';
-import { queuePipelineRun } from '../services/pipeline/queue.js';
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
@@ -468,10 +467,8 @@ export const importProspectsHandler = async (req, res) => {
       candidate.imported = true;
       candidate.prospect = prospect._id;
       imported.push(prospect);
-
-      queuePipelineRun(prospect._id).catch((err) =>
-        console.error(`Queue error for ${prospect._id}:`, err.message)
-      );
+      // Not queued: like every other creation path, imported candidates wait in
+      // 'not-started' until the user starts them.
     }
 
     await company.save();

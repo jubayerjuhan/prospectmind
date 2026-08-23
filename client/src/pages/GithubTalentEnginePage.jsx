@@ -21,7 +21,8 @@ export default function GithubTalentEnginePage() {
   const { data: response, isLoading } = useQuery({
     queryKey: ['gte-campaigns', search],
     queryFn: () => api.get('/github-talent', { params: { search, limit: 100 } }).then(res => res.data),
-    refetchInterval: (data) => data?.data?.some(c => c.status === 'running') ? 3000 : false
+    // v5 passes the query, not the data — see ProspectDetailPage.
+    refetchInterval: (query) => (query.state.data?.data?.some(c => c.status === 'running') ? 3000 : false)
   });
 
   const campaigns = response?.data || [];

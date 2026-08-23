@@ -44,7 +44,8 @@ function UpgradePrompt({ onClose }) {
  *
  * When campaignContext is provided, uses the atomic POST /prospect-lists/:id/add-and-create
  * endpoint so the prospect is created and added to the campaign in one shot.
- * The pipeline is only queued if the campaign has settings configured.
+ * Creating never starts enrichment — the prospect lands in 'not-started' and
+ * the user starts it from the prospect, or for the whole campaign at once.
  */
 export default function AddProspectModal({ onClose, onCreated, campaignContext = null }) {
   const queryClient = useQueryClient();
@@ -69,9 +70,9 @@ export default function AddProspectModal({ onClose, onCreated, campaignContext =
     onSuccess: (response) => {
       const settingsMissing = response.data.campaignSettingsMissing;
       if (settingsMissing) {
-        toast.success('Prospect added — configure Campaign Settings to start the AI pipeline.');
+        toast.success('Prospect added — set a campaign goal before enriching.');
       } else {
-        toast.success('Prospect added — pipeline starting…');
+        toast.success('Prospect added — press Start when you want it enriched.');
       }
       queryClient.invalidateQueries({ queryKey: ['prospects'] });
       queryClient.invalidateQueries({ queryKey: ['prospect-lists'] });
@@ -107,9 +108,9 @@ export default function AddProspectModal({ onClose, onCreated, campaignContext =
             <div>
               <p className="text-amber-300 text-xs font-semibold">Campaign settings not configured</p>
               <p className="text-amber-400/80 text-xs mt-0.5 leading-relaxed">
-                The AI pipeline won't start until you fill in <strong>Campaign Description</strong> and{' '}
-                <strong>Target Ecosystem</strong> in Campaign Settings. The prospect will be added but stay in{' '}
-                <em>pending</em> status.
+                Enrichment can't be started until you fill in <strong>Campaign Description</strong> and{' '}
+                <strong>Target Ecosystem</strong> in Campaign Settings. The prospect will be added and wait in{' '}
+                <em>not started</em>.
               </p>
             </div>
           </div>

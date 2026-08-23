@@ -148,16 +148,42 @@ const prospectSchema = new mongoose.Schema(
     rawWebsite: String,
 
     // Pipeline status
+    // 'not-started' is the state a prospect is CREATED in: enrichment is opt-in,
+    // started by the user per prospect or per campaign. 'pending' now means
+    // strictly "queued, waiting for a worker" — the two used to be conflated,
+    // which is why every import immediately spent AI budget on rows the user
+    // had not looked at yet.
     pipelineStatus: {
       type: String,
-      enum: ['pending', 'discovering', 'enriching', 'classifying', 'scoring', 'generating', 'paused', 'ready', 'failed'],
-      default: 'pending',
+      enum: ['not-started', 'pending', 'discovering', 'enriching', 'classifying', 'scoring', 'generating', 'paused', 'ready', 'failed'],
+      default: 'not-started',
       index: true,
     },
     pipelineError: String,
     pipelineJobId: String,
     pipelinePaused: { type: Boolean, default: false },
     pipelinePausedAt: Date,
+
+    // Human-readable trace of what the pipeline did, written as it runs so the
+    // detail page can show progress instead of a single opaque "enriching…".
+    // Deliberately NOT the console logs: these are phrased for the end user and
+    // omit internals (scraper engines, prompt sizes, layer numbers). Capped at
+    // ACTIVITY_LOG_LIMIT entries per run by the $slice in logActivity().
+    pipelineActivity: {
+      type: [
+        {
+          _id: false,
+          at: { type: Date, default: Date.now },
+          step: {
+            type: String,
+            enum: ['start', 'discovery', 'enrichment', 'company', 'classification', 'scoring', 'personas', 'signals', 'done'],
+          },
+          message: String,
+          level: { type: String, enum: ['info', 'success', 'warn', 'error'], default: 'info' },
+        },
+      ],
+      default: [],
+    },
 
     // Enriched data (populated by pipeline)
     enrichedProfile: enrichedProfileSchema,

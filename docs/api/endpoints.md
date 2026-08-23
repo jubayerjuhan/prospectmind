@@ -28,9 +28,10 @@
 | POST | `/prospects/bulk` | Bulk create. Body `{ prospects: [...] }` |
 | GET | `/prospects/:id` | Full prospect with messages |
 | PATCH | `/prospects/:id` | Update fields (incl. notes) |
-| DELETE | `/prospects/:id` | Soft archive |
-| POST | `/prospects/:id/retry` | Re-run pipeline |
-| POST | `/prospects/:id/pause` · `/resume` | Pause/resume the pipeline mid-run |
+| DELETE | `/prospects/:id` | Delete a prospect. Soft archive (`isArchived`), **plus** `$pull` from every campaign's `prospects[]` and cancellation of any queued run — all three, or the deletion is only half done |
+| POST | `/prospects/:id/start` | Start enrichment — prospects are created `not-started`, nothing runs until this |
+| POST | `/prospects/:id/retry` | Re-run pipeline (same handler as `/start`) |
+| POST | `/prospects/:id/pause` · `/resume` | Pause/resume. Pause returns `immediate: true` when the run was still queued and was stopped outright; `false` means it was mid-layer and stops at the next boundary |
 | POST | `/prospects/:id/generate-messages` | Generate outreach on demand (L5) |
 | PATCH | `/prospects/:id/messages/:messageId/approve` | Approve. Body `{ editedBody? }` |
 | POST | `/prospects/:id/messages/:messageId/send` | Send via Resend, marks `sent` |
@@ -49,13 +50,14 @@ A `ProspectList` **is** a campaign (v2 Phase D). It carries membership, strategy
 | PATCH | `/prospect-lists/:id` | Rename, update filters/strategy, replace manual membership |
 | DELETE | `/prospect-lists/:id` | Soft archive |
 | POST | `/prospect-lists/:id/prospects` | Add. Body `{ prospectIds: [] }` |
-| DELETE | `/prospect-lists/:id/prospects` | Remove. Body `{ prospectIds: [] }` |
+| DELETE | `/prospect-lists/:id/prospects` | Remove from the campaign only — the prospects stay in the pool. Body `{ prospectIds: [] }` |
 | POST | `/prospect-lists/:id/add-and-create` | Create a prospect directly into the campaign |
 | POST | `/prospect-lists/:id/prospects/bulk-import` | CSV bulk create into the campaign. Body `{ candidates: [] }`. Dedupes within the upload and against existing members, clamps to the plan's remaining prospect allowance, and only queues the pipeline when the campaign has a `campaignDescription` |
 | POST | `/prospect-lists/:id/import-preview` · `/import-confirm` | Two-step bulk import |
 | GET | `/prospect-lists/:id/outreach` | Generated sequences + status |
 | POST | `/prospect-lists/:id/outreach/generate` | Build per-prospect sequences from **stored knowledge only** (skips non-ready prospects) |
-| POST | `/prospect-lists/:id/pause` · `/resume` | Pause/resume campaign processing |
+| POST | `/prospect-lists/:id/start` | Start every `not-started` prospect in the campaign (blocked by the campaign-goal gate) |
+| POST | `/prospect-lists/:id/pause` · `/resume` | Pause/resume campaign processing. Pause reports `stoppedImmediately` vs `stillFinishing` |
 
 ---
 

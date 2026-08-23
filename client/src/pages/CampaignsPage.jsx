@@ -15,7 +15,8 @@ import CampaignCard from '../components/campaigns/CampaignCard';
 import CampaignStrategyTab from '../components/campaigns/CampaignStrategyTab';
 import CampaignOutreachTab from '../components/campaigns/CampaignOutreachTab';
 import ProspectTable from '../components/campaigns/ProspectTable';
-import { STATUS_COLOR } from '../components/campaigns/prospectStatus';
+import ConfirmDialog from '../components/ui/ConfirmDialog';
+import { STATUS_COLOR, livePollInterval } from '../components/campaigns/prospectStatus';
 
 const PAGE_SIZE = 20;
 const PRIORITY_OPTIONS = ['high', 'medium', 'low'];
@@ -82,7 +83,9 @@ export default function CampaignsPage() {
       api
         .get('/prospects', { params: { search, status: statusFilter, priority: priorityFilter, limit: PAGE_SIZE, page } })
         .then((r) => r.data),
-    refetchInterval: isPool ? 8000 : false,
+    // Fast while any row is mid-run so Start/Pause feel immediate, back to the
+    // idle cadence once nothing is moving. v5 passes the query, not the data.
+    refetchInterval: (query) => (isPool ? livePollInterval(query.state.data?.data) || 8000 : false),
     keepPreviousData: true,
     enabled: isPool,
   });
@@ -91,9 +94,13 @@ export default function CampaignsPage() {
     queryKey: ['prospect-list', activeListId, page],
     queryFn: () => api.get(`/prospect-lists/${activeListId}`, { params: { page, limit: PAGE_SIZE } }).then((r) => r.data),
     enabled: Boolean(activeListId),
-    refetchInterval: activeListId ? 8000 : false,
+    refetchInterval: (query) =>
+      activeListId ? livePollInterval(query.state.data?.data?.prospects) || 8000 : false,
     keepPreviousData: true,
   });
+
+  // Every destructive action funnels through one dialog: { kind, prospect }.
+  const [confirming, setConfirming] = useState(null);
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ['prospect-lists'] });
@@ -102,6 +109,8 @@ export default function CampaignsPage() {
   };
 
   const retryMutation = usePostAction((id) => `/prospects/${id}/retry`, 'Pipeline restarted', invalidateAll);
+  const startMutation = usePostAction((id) => `/prospects/${id}/start`, 'Enrichment started', invalidateAll);
+  const startCampaignMutation = usePostAction((id) => `/prospect-lists/${id}/start`, 'Enrichment started', invalidateAll);
   const pauseMutation = usePostAction((id) => `/prospects/${id}/pause`, 'Pause requested', invalidateAll);
   const resumeMutation = usePostAction((id) => `/prospects/${id}/resume`, 'Pipeline resumed', invalidateAll);
   const pauseCampaignMutation = usePostAction((id) => `/prospect-lists/${id}/pause`, 'Campaign paused', invalidateAll);
@@ -134,6 +143,7 @@ export default function CampaignsPage() {
     onSuccess: () => {
       toast.success('Campaign deleted');
       queryClient.invalidateQueries({ queryKey: ['prospect-lists'] });
+      setConfirming(null);
       goTo({});
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to delete campaign'),
@@ -150,12 +160,24 @@ export default function CampaignsPage() {
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to add prospects'),
   });
 
+  const deleteProspectMutation = useMutation({
+    mutationFn: (id) => api.delete(`/prospects/${id}`),
+    onSuccess: (res) => {
+      toast.success(res.data?.message || 'Prospect deleted');
+      invalidateAll();
+      setSelectedIds([]);
+      setConfirming(null);
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to delete prospect'),
+  });
+
   const removeFromListMutation = useMutation({
     mutationFn: ({ listId, prospectIds }) => api.delete(`/prospect-lists/${listId}/prospects`, { data: { prospectIds } }),
     onSuccess: () => {
       toast.success('Prospects removed from campaign');
       invalidateAll();
       setSelectedIds([]);
+      setConfirming(null);
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to remove prospects'),
   });
@@ -383,6 +405,8 @@ export default function CampaignsPage() {
           onToggle={toggleSelected}
           onToggleAll={toggleSelectAll}
           onRetry={(id) => retryMutation.mutate(id)}
+          onStart={(id) => startMutation.mutate(id)}
+          onDelete={(prospect) => setConfirming({ kind: 'delete', prospect })}
           onPause={(id) => pauseMutation.mutate(id)}
           onResume={(id) => resumeMutation.mutate(id)}
           page={page}
@@ -476,6 +500,14 @@ export default function CampaignsPage() {
                   <FileSpreadsheet size={15} /> Import CSV
                 </button>
                 <button
+                  onClick={() => startCampaignMutation.mutate(activeList._id)}
+                  disabled={startCampaignMutation.isPending}
+                  className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:opacity-50"
+                  title="Start enrichment for every prospect in this campaign that hasn't run yet"
+                >
+                  <Sparkles size={15} /> Start enrichment
+                </button>
+                <button
                   onClick={() => pauseCampaignMutation.mutate(activeList._id)}
                   className="rounded-lg bg-slate-800 p-2 text-slate-400 transition hover:text-amber-300"
                   title="Pause pipeline for this campaign"
@@ -511,7 +543,7 @@ export default function CampaignsPage() {
             </button>
             <button
               onClick={() => {
-                if (window.confirm(`Delete campaign "${activeList.name}"?`)) deleteListMutation.mutate(activeListId);
+                setConfirming({ kind: 'delete-campaign' });
               }}
               className="rounded-lg bg-slate-800 p-2 text-slate-400 transition hover:text-red-400"
               title="Delete campaign"
@@ -571,7 +603,7 @@ export default function CampaignsPage() {
               )}
               {isManual && (
                 <button
-                  onClick={() => removeFromListMutation.mutate({ listId: activeListId, prospectIds: selectedIds })}
+                  onClick={() => setConfirming({ kind: 'remove-selected' })}
                   disabled={selectedIds.length === 0 || removeFromListMutation.isPending}
                   className="rounded-lg bg-slate-800 px-4 py-2 text-sm text-slate-300 transition hover:bg-red-950/60 hover:text-red-300 disabled:opacity-40"
                 >
@@ -595,6 +627,9 @@ export default function CampaignsPage() {
             onToggle={toggleSelected}
             onToggleAll={toggleSelectAll}
             onRetry={(id) => retryMutation.mutate(id)}
+            onStart={(id) => startMutation.mutate(id)}
+            onDelete={(prospect) => setConfirming({ kind: 'delete', prospect })}
+            onRemoveFromCampaign={(prospect) => setConfirming({ kind: 'remove', prospect })}
             onPause={(id) => pauseMutation.mutate(id)}
             onResume={(id) => resumeMutation.mutate(id)}
             page={page}
@@ -651,6 +686,70 @@ export default function CampaignsPage() {
           onImported={invalidateAll}
         />
       )}
+      {confirming && (() => {
+        const name = confirming.prospect
+          ? `${confirming.prospect.firstName} ${confirming.prospect.lastName || ''}`.trim()
+          : '';
+        // Each variant spells out its own blast radius — the whole point of
+        // replacing window.confirm is that "remove from campaign" and "delete
+        // prospect" stop looking like the same action.
+        const variants = {
+          delete: {
+            title: 'Delete prospect?',
+            message: (
+              <>
+                <strong className="text-slate-200">{name}</strong> will be removed from every campaign
+                and from your prospects, along with their enrichment, score and drafted messages.
+              </>
+            ),
+            confirmLabel: 'Delete prospect',
+            isPending: deleteProspectMutation.isPending,
+            onConfirm: () => deleteProspectMutation.mutate(confirming.prospect._id),
+          },
+          remove: {
+            title: 'Remove from campaign?',
+            message: (
+              <>
+                <strong className="text-slate-200">{name}</strong> will leave{' '}
+                <strong className="text-slate-200">{activeList?.name}</strong> but stays in your prospects,
+                keeping their enrichment and score.
+              </>
+            ),
+            confirmLabel: 'Remove',
+            tone: 'warning',
+            isPending: removeFromListMutation.isPending,
+            onConfirm: () =>
+              removeFromListMutation.mutate({ listId: activeListId, prospectIds: [confirming.prospect._id] }),
+          },
+          'remove-selected': {
+            title: `Remove ${selectedIds.length} prospect${selectedIds.length === 1 ? '' : 's'}?`,
+            message: (
+              <>
+                They will leave <strong className="text-slate-200">{activeList?.name}</strong> but stay in
+                your prospects.
+              </>
+            ),
+            confirmLabel: 'Remove',
+            tone: 'warning',
+            isPending: removeFromListMutation.isPending,
+            onConfirm: () => removeFromListMutation.mutate({ listId: activeListId, prospectIds: selectedIds }),
+          },
+          'delete-campaign': {
+            title: 'Delete campaign?',
+            message: (
+              <>
+                <strong className="text-slate-200">{activeList?.name}</strong> will be deleted. The prospects
+                in it are kept and stay in your prospects.
+              </>
+            ),
+            confirmLabel: 'Delete campaign',
+            isPending: deleteListMutation.isPending,
+            onConfirm: () => deleteListMutation.mutate(activeListId),
+          },
+        };
+        const variant = variants[confirming.kind];
+        return variant ? <ConfirmDialog {...variant} onClose={() => setConfirming(null)} /> : null;
+      })()}
     </div>
   );
 }

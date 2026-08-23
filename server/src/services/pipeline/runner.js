@@ -17,6 +17,8 @@ import { scoreProfile } from './scorer.js';
 import { scorePersonas } from './personaScorer.js';
 import { detectProspectSignals, detectCompanySignals } from './signalDetector.js';
 import { formatPersonasForPrompt, loadCampaignPersonas } from '../../utils/personas.js';
+import { runWithActivityLog, logActivity, resetActivityLog } from './activityLog.js';
+import { LinkedInAuthError } from '../../utils/pipelineErrors.js';
 
 const updateStatus = async (prospectId, status, extra = {}) => {
   await Prospect.findByIdAndUpdate(prospectId, { pipelineStatus: status, ...extra });
@@ -53,7 +55,7 @@ const buildAIContext = (preferredProvider = 'auto') => {
   return { callAI, getProviderUsed };
 };
 
-export const runPipeline = async (prospectId) => {
+const executePipeline = async (prospectId) => {
   const prospect = await Prospect.findById(prospectId);
   if (!prospect) throw new Error(`Prospect ${prospectId} not found`);
 
@@ -153,6 +155,13 @@ export const runPipeline = async (prospectId) => {
       pipelinePausedAt: null,
       pipelineError: null,
     });
+    // Cleared before the first line so a re-run reads as a fresh trace.
+    await resetActivityLog(prospectId);
+    logActivity(
+      `Starting research on ${prospect.firstName} ${prospect.lastName || ''}`.trim() +
+        (prospect.company ? ` at ${prospect.company}` : ''),
+      { step: 'start' }
+    );
 
     // ── Layer 1: Identity Resolution ────────────────────────────────────────
     await updateStatus(prospectId, 'discovering');
@@ -163,6 +172,7 @@ export const runPipeline = async (prospectId) => {
     // ── Layer 2: Enrichment ─────────────────────────────────────────────────
     await updateStatus(prospectId, 'enriching');
     console.log('  → Layer 2: Profile Enrichment');
+    logActivity('Gathering everything we can find about them', { step: 'enrichment' });
     const enrichedProfile = await enrichProfile(prospect, identity, { callAI, prospectContext, companyDomainHint });
     if (await pauseIfRequested(prospectId)) return { success: false, paused: true, prospectId };
 
@@ -198,6 +208,10 @@ export const runPipeline = async (prospectId) => {
           `  🏢 Company: "${linkedCompany.name}" via ${resolution.evidence.source}` +
           `${resolution.evidence.value ? ` (${resolution.evidence.value})` : ''} — ${resolution.action}`
         );
+        logActivity(`Matched their employer: ${linkedCompany.name}`, {
+          step: 'company',
+          level: 'success',
+        });
 
         // First-time company analysis + signal detection (HLD §2.2, §3.3) —
         // fire-and-forget so the prospect pipeline never waits; both are
@@ -219,17 +233,28 @@ export const runPipeline = async (prospectId) => {
       }
     } catch (companyErr) {
       console.warn(`  ⚠ Company link skipped: ${companyErr.message}`);
+      logActivity('Could not confidently match them to a company', {
+        step: 'company',
+        level: 'warn',
+      });
     }
 
     // ── Layer 3: Classification ─────────────────────────────────────────────
     await updateStatus(prospectId, 'classifying');
     console.log('  → Layer 3: Classification');
+    logActivity('Working out their role, seniority and focus areas', { step: 'classification' });
     const classification = await classifyProfile(prospect, enrichedProfile, { callAI });
     if (await pauseIfRequested(prospectId)) return { success: false, paused: true, prospectId };
 
     // ── Layer 4: Scoring ────────────────────────────────────────────────────
     await updateStatus(prospectId, 'scoring');
     console.log('  → Layer 4: Scoring');
+    logActivity(
+      campaignList?.name
+        ? `Scoring how well they fit "${campaignList.name}"`
+        : 'Scoring how well they fit your criteria',
+      { step: 'scoring' }
+    );
     const scoring = await scoreProfile(prospect, enrichedProfile, classification, fullCampaignContext, { callAI });
     if (await pauseIfRequested(prospectId)) return { success: false, paused: true, prospectId };
 
@@ -241,6 +266,11 @@ export const runPipeline = async (prospectId) => {
     try {
       if (campaignPersonas.length) {
         console.log(`  → Layer 4.5: Persona Scoring (${campaignPersonas.length} persona(s))`);
+        logActivity(
+          `Scoring them against ${campaignPersonas.length} persona${campaignPersonas.length === 1 ? '' : 's'}: ` +
+            campaignPersonas.map((persona) => persona.name).join(', '),
+          { step: 'personas' }
+        );
         // Each persona is scored on its own definition (HLD §3.1): how well the
         // prospect matches that persona TYPE, so scores stay reusable.
         // `companyContext` is reserved for real Company analysis (Phase A), not
@@ -249,6 +279,7 @@ export const runPipeline = async (prospectId) => {
       }
     } catch (personaErr) {
       console.warn(`  ⚠ Persona scoring skipped: ${personaErr.message}`);
+      logActivity('Persona scoring was skipped for this run', { step: 'personas', level: 'warn' });
     }
     if (await pauseIfRequested(prospectId)) return { success: false, paused: true, prospectId };
 
@@ -262,9 +293,18 @@ export const runPipeline = async (prospectId) => {
       });
       if (prospectSignals.length) {
         console.log(`  → Layer 4.6: Signal Detection (${prospectSignals.length} result(s))`);
+        const detected = prospectSignals.filter((signal) => signal.detected);
+        logActivity(
+          detected.length
+            ? `Detected ${detected.length} signal${detected.length === 1 ? '' : 's'}: ` +
+              detected.map((signal) => signal.name).filter(Boolean).join(', ')
+            : 'Checked for buying signals — none found',
+          { step: 'signals', level: detected.length ? 'success' : 'info' }
+        );
       }
     } catch (signalErr) {
       console.warn(`  ⚠ Prospect signal detection skipped: ${signalErr.message}`);
+      logActivity('Signal detection was skipped for this run', { step: 'signals', level: 'warn' });
     }
     if (await pauseIfRequested(prospectId)) return { success: false, paused: true, prospectId };
 
@@ -316,6 +356,12 @@ export const runPipeline = async (prospectId) => {
 
     console.log(`  ✅ Pipeline complete. Score: ${scoring.compatibilityScore}/100 | Provider: ${aiProviderUsed}`);
     if (scoring.scoreReasoning) console.log(`  📊 Reasoning: ${scoring.scoreReasoning}`);
+    logActivity(
+      isFallbackData
+        ? 'Finished, but on limited data — the AI service was unavailable, so this profile is incomplete'
+        : `Research complete — scored ${scoring.compatibilityScore}/100`,
+      { step: 'done', level: isFallbackData ? 'warn' : 'success' }
+    );
     return { success: true, prospectId };
   } catch (error) {
     console.error(`  ❌ Pipeline failed:`, error.message);
@@ -325,8 +371,19 @@ export const runPipeline = async (prospectId) => {
         pipelineStatus: 'paused',
         pipelinePausedAt: latest.pipelinePausedAt || new Date(),
       });
+      logActivity('Paused — resume to run this prospect again from the start', {
+        step: 'done',
+        level: 'warn',
+      });
       return { success: false, paused: true, prospectId };
     }
+
+    logActivity(
+      error instanceof LinkedInAuthError
+        ? 'Stopped — LinkedIn needs to be reconnected before this prospect can be researched'
+        : 'Stopped before finishing — see the error above',
+      { step: 'done', level: 'error' }
+    );
 
     // The company link now happens after Layer 2, so a failure before that
     // (a dead LinkedIn session, most often) would leave the prospect with no
@@ -355,3 +412,12 @@ export const runPipeline = async (prospectId) => {
     throw error;
   }
 };
+
+/**
+ * Run the full pipeline for one prospect.
+ *
+ * Wraps the run in an activity-log context (see activityLog.js) so any layer
+ * below can call logActivity() without a logger being threaded through it.
+ */
+export const runPipeline = (prospectId) =>
+  runWithActivityLog(prospectId, () => executePipeline(prospectId));

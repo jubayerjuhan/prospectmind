@@ -2,6 +2,7 @@ import { Queue, Worker, UnrecoverableError } from 'bullmq';
 import Redis from 'ioredis';
 import { runPipeline } from './runner.js';
 import { LinkedInAuthError } from '../../utils/pipelineErrors.js';
+import { jobIdFor } from './jobId.js';
 import 'dotenv/config';
 
 // Initialize Redis connection for BullMQ (maxRetriesPerRequest must be null)
@@ -63,12 +64,50 @@ pipelineWorker?.on('failed', (job, err) => {
     console.error(`Pipeline Job ${job?.id} failed:`, err.message);
 });
 
+// One job id per prospect, so a queued run can be found again — pausing a
+// prospect that has not started yet must actually take it OUT of the queue, not
+// just mark it and let the worker pick it up minutes later. It also makes
+// double-queueing impossible: two clicks on Start cannot enrich the same
+// prospect twice.
+
+
 // Helper function to add a job to the queue
 export const queuePipelineRun = async (prospectId) => {
+    const jobId = jobIdFor(prospectId);
+
+    // BullMQ ignores add() for an id that still exists, and this queue keeps
+    // failed jobs (removeOnFail: false). Without this remove, a prospect that
+    // failed once could never be started again — the add would be silently
+    // dropped and the UI would sit at "pending" forever.
+    await pipelineQueue.remove(jobId).catch(() => {});
+
     await pipelineQueue.add('runPipeline', { prospectId }, {
+        jobId,
         attempts: 3,
         backoff: { type: 'exponential', delay: 5000 },
         removeOnComplete: true,
         removeOnFail: false
     });
+};
+
+/**
+ * Take a prospect out of the queue if it has not started running yet.
+ *
+ * @returns {Promise<Boolean>} true if the job was removed before it began —
+ *   the caller can then mark the prospect paused immediately. False means the
+ *   job is already running (BullMQ refuses to remove a locked job) or was never
+ *   queued, and the run has to be stopped the cooperative way, at the next
+ *   layer boundary.
+ */
+export const cancelQueuedPipelineRun = async (prospectId) => {
+    try {
+        const job = await pipelineQueue.getJob(jobIdFor(prospectId));
+        if (!job) return false;
+        if (await job.isActive()) return false;
+        await job.remove();
+        return true;
+    } catch (err) {
+        console.warn(`[queue] Could not cancel queued run for ${prospectId}: ${err.message}`);
+        return false;
+    }
 };

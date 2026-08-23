@@ -14,6 +14,7 @@
     "db:backfill-company-refs": "node scripts/backfill-company-refs.js",
     "db:reresolve-companies": "node scripts/reresolve-companies.js",
     "test:company-identity": "node scripts/test-company-identity.mjs",
+    "pipeline:reset-stale": "RUN_WORKERS=false node scripts/reset-stale-pipeline-status.mjs",
     "linkedin:login": "node scripts/linkedin-login.mjs",
     "linkedin:cookie": "node scripts/linkedin-cookie.mjs",
     "linkedin:status": "node scripts/simulate-linkedin-failure.js status",

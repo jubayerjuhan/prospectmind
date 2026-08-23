@@ -12,6 +12,7 @@ import {
   importProspectsConfirm,
   removeProspectsFromList,
   updateProspectList,
+  startCampaign,
   pauseCampaign,
   resumeCampaign,
   getCampaignOutreach,
@@ -35,6 +36,7 @@ router.post('/:id/import-preview', importProspectPreview);
 router.post('/:id/import-confirm', importProspectsConfirm);
 router.get('/:id/outreach', getCampaignOutreach);
 router.post('/:id/outreach/generate', generateCampaignOutreach);
+router.post('/:id/start', startCampaign);
 router.post('/:id/pause', pauseCampaign);
 router.post('/:id/resume', resumeCampaign);
 

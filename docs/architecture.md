@@ -93,6 +93,9 @@ server/src/
     │   ├── personaScorer.js      # L4.5 per-Persona scoring
     │   ├── signalDetector.js     # L4.6 prospect + company signal detection
     │   ├── outreach.js           # L5 Playbook-driven message generation
+    │   ├── activityLog.js        # user-facing run narration (AsyncLocalStorage-scoped)
+    │   ├── pauseControl.js       # pause: dequeue if not started, cooperative if running
+    │   ├── jobId.js              # the one BullMQ job id per prospect (unit-tested)
     │   ├── profileSnapshot.js
     │   └── githubTalentQueue.js
     ├── company/

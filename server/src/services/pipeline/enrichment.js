@@ -17,6 +17,7 @@ import { notifyLinkedInSessionDead, recordLinkedInAuthFailure } from '../scraper
 import * as linkedinLiveLogin from '../scraper/linkedinLiveLogin.js';
 import { normalizeDomainKey } from '../../utils/domains.js';
 import { matchesAnchor, buildAnchor } from '../../utils/anchorMatch.js';
+import { logActivity, hostOf } from './activityLog.js';
 
 const SYSTEM_PROMPT = `You are an expert B2B prospect research analyst.
 You are given real scraped data about ONE confirmed person, tied to a specific LinkedIn profile URL.
@@ -227,6 +228,7 @@ export const enrichProfile = async (
   //   main profile → /details/experience → /details/education → /recent-activity/all
   // This avoids the "Execution context was destroyed" crash that happened
   // when two browser instances shared the same CDPSession cookies.
+  if (linkedinUrl) logActivity('Reading their LinkedIn profile', { step: 'enrichment' });
   const [linkedinResult, snippets] = await Promise.all([
     scrapeLinkedIn(linkedinUrl),
     collectSnippets(fullName, prospect.company || '', companyDomainKey),
@@ -258,6 +260,10 @@ export const enrichProfile = async (
         console.warn('[enrichment] Failed to auto-start Live Login:', e.message)
       );
     }
+    logActivity('LinkedIn would not let us in — the session needs reconnecting', {
+      step: 'enrichment',
+      level: 'error',
+    });
     throw new LinkedInAuthError(message, { checkpoint: isCheckpoint });
   }
 
@@ -275,8 +281,15 @@ export const enrichProfile = async (
 
   if (linkedinPosts.length > 0) {
     console.log(`[enrichment] ✅ ${linkedinPosts.length} LinkedIn posts fetched for recent activity`);
+    logActivity(`Read ${linkedinPosts.length} of their recent LinkedIn posts`, {
+      step: 'enrichment',
+      level: 'success',
+    });
   } else {
     console.log('[enrichment] ⚠️  No LinkedIn posts scraped — will rely on Serper snippets for recent activity');
+    if (linkedinUrl) {
+      logActivity('No recent LinkedIn posts were visible', { step: 'enrichment', level: 'warn' });
+    }
   }
 
   // Contact Info is scraped directly from the confirmed profile URL — authoritative
@@ -286,10 +299,12 @@ export const enrichProfile = async (
     if (!email && linkedinResult.contactInfo.email) {
       email = linkedinResult.contactInfo.email;
       console.log(`[enrichment] 🔗 Email from LinkedIn contact info: ${email}`);
+      logActivity(`Found their email: ${email}`, { step: 'enrichment', level: 'success' });
     }
     if (!website && linkedinResult.contactInfo.website) {
       website = linkedinResult.contactInfo.website;
       console.log(`[enrichment] 🔗 Website from LinkedIn contact info: ${website}`);
+      logActivity(`Found their website: ${hostOf(website)}`, { step: 'enrichment', level: 'success' });
     }
   }
 
@@ -315,6 +330,10 @@ export const enrichProfile = async (
   const droppedCount = nonLinkedinSnippets.length - corroboratedSnippets.length;
   if (droppedCount > 0) {
     console.log(`[enrichment] 🛡️  Dropped ${droppedCount} unanchored snippet(s) — no corroboration with confirmed profile (possible namesake)`);
+    logActivity(
+      `Ignored ${droppedCount} search result${droppedCount === 1 ? '' : 's'} that looked like a different person with the same name`,
+      { step: 'enrichment' }
+    );
   }
 
   // ── Step 2: Scrape top non-LinkedIn/GitHub pages from search results ───────
@@ -331,7 +350,23 @@ export const enrichProfile = async (
     .slice(0, 3); // up from 2 → scrape top 3 pages
 
   console.log(`[enrichment] Scraping ${scrapableUrls.length} extra pages:`, scrapableUrls);
+  if (scrapableUrls.length) {
+    logActivity(`Reading ${scrapableUrls.map(hostOf).join(', ')}`, { step: 'enrichment' });
+  }
   const extraPageTexts = await Promise.all(scrapableUrls.map((url) => scrapePage(url)));
+
+  // Name the pages that could not be read: a thin profile is usually explained
+  // by exactly this, and without it the user only sees an unexplained gap.
+  const unreadable = scrapableUrls.filter((_, i) => {
+    const r = extraPageTexts[i];
+    return !r || !(typeof r === 'string' ? r : r.text || '').trim();
+  });
+  if (unreadable.length) {
+    logActivity(`Could not read ${unreadable.map(hostOf).join(', ')}`, {
+      step: 'enrichment',
+      level: 'warn',
+    });
+  }
 
   // ── Step 3: Mine scraped pages for social profile links ────────────────────
   // Puppeteer returns { text, links } — links[] contains every <a href> on the page.
@@ -402,7 +437,10 @@ export const enrichProfile = async (
 
   // ── Step 4: Now fetch GitHub API with the best URL we found ───────────────
   const githubData = await fetchGitHubData(githubUrl);
-  if (githubData) console.log(`[enrichment] ✅ GitHub data fetched for ${githubUrl}`);
+  if (githubData) {
+    console.log(`[enrichment] ✅ GitHub data fetched for ${githubUrl}`);
+    logActivity('Pulled their public GitHub activity', { step: 'enrichment', level: 'success' });
+  }
 
   const extraContent = scrapableUrls
     .map((url, i) => {
@@ -541,6 +579,7 @@ Return JSON:
 
   let enriched = {};
   try {
+    logActivity('Building their profile from everything we gathered', { step: 'enrichment' });
     enriched = await callAI({ systemPrompt: SYSTEM_PROMPT, userPrompt, maxTokens: 2500, jsonMode: true, thinkingBudget: 0 });
   } catch (error) {
     if (error instanceof AIFallbackRequiredError) {

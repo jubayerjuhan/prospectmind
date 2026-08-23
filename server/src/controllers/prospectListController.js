@@ -6,11 +6,16 @@ import Playbook from '../models/Playbook.js';
 import Signal from '../models/Signal.js';
 import { buildProspectFilter } from '../utils/buildProspectFilter.js';
 import { queuePipelineRun } from '../services/pipeline/queue.js';
+import { pauseProspectRun, ACTIVE_PIPELINE_STATUSES } from '../services/pipeline/pauseControl.js';
 import { ensureCompanyLink } from '../services/company/companyResolver.js';
 import { previewSpeakerImport } from '../services/scraper/speakerImportService.js';
 import { executeCampaignOutreach } from '../services/campaign/campaignExecutor.js';
 
-const LIST_SUMMARY_PROJECTION = '_id firstName lastName company pipelineStatus compatibilityScore outreachPriority primaryAngle';
+// pipelinePaused rides along because the table has to tell "paused" apart from
+// "pausing" — a run that is flagged but still finishing its current layer.
+// aiProviderUsed was always rendered by the table but never selected, so the AI
+// column sat empty in the campaign view while working in the pool view.
+const LIST_SUMMARY_PROJECTION = '_id firstName lastName company pipelineStatus pipelinePaused aiProviderUsed compatibilityScore outreachPriority primaryAngle';
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -631,19 +636,14 @@ export const addAndCreateProspect = async (req, res) => {
     // to be the only place a companyRef was ever set.
     await ensureCompanyLink(prospect);
 
-    // Only queue pipeline if campaign settings are present
-    let pipelineQueued = false;
-    if (hasCampaignSettings) {
-      queuePipelineRun(prospect._id).catch((err) =>
-        console.error(`Queue error for ${prospect._id}:`, err.message)
-      );
-      pipelineQueued = true;
-    }
-
+    // Enrichment is opt-in everywhere, campaigns included: the prospect lands
+    // in 'not-started' and the user starts it (per prospect, or per campaign
+    // with POST /:id/start). campaignSettingsMissing still rides along so the
+    // UI can keep warning that a start would be blocked by the gate.
     res.status(201).json({
       success: true,
       data: prospect,
-      pipelineQueued,
+      pipelineQueued: false,
       campaignSettingsMissing: !hasCampaignSettings,
     });
   } catch (error) {
@@ -734,11 +734,9 @@ export const bulkImportProspectsToList = async (req, res) => {
       // insertMany bypasses document middleware, so the company link has to be explicit.
       for (const p of created) await ensureCompanyLink(p).catch(() => null);
 
-      if (hasCampaignSettings) {
-        created.forEach((p) => {
-          queuePipelineRun(p._id).catch((err) => console.error(`Queue error for ${p._id}:`, err.message));
-        });
-      }
+      // Not queued — see addAndCreateProspect. Imported rows wait in
+      // 'not-started' until the user starts them.
+
     }
 
     res.status(201).json({
@@ -917,9 +915,9 @@ export const importProspectsConfirm = async (req, res) => {
         await ensureCompanyLink(prospect).catch(() => null);
       }
 
-      created.forEach((prospect) =>
-        queuePipelineRun(prospect._id).catch((err) => console.error(`Queue error for ${prospect._id}:`, err.message))
-      );
+      // Not queued — imported prospects wait in 'not-started' for an explicit
+      // start, like every other creation path.
+
     }
 
     res.status(201).json({
@@ -1005,6 +1003,68 @@ export const generateCampaignOutreach = async (req, res) => {
   }
 };
 
+// POST /api/prospect-lists/:id/start
+//
+// Starts every prospect in the campaign that is still 'not-started'. Since
+// creation no longer auto-runs the pipeline, this is how a campaign of imported
+// rows gets enriched — one click instead of one per prospect.
+export const startCampaign = async (req, res) => {
+  try {
+    const { list, error } = await getManualList({
+      listId: req.params.id,
+      organizationId: req.organization._id,
+    });
+    if (error) {
+      return res.status(error.status).json({ success: false, message: error.message });
+    }
+
+    // Same gate the per-prospect start enforces: a prospect scored against an
+    // empty campaign goal looks scored but isn't.
+    if (!list.campaignDescription?.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: `Campaign "${list.name}" is missing required settings before the pipeline can run. Please fill in: Campaign Description & Goals.`,
+        code: 'CAMPAIGN_SETTINGS_REQUIRED',
+        campaignId: list._id,
+        missingFields: ['Campaign Description & Goals'],
+      });
+    }
+
+    const toStart = await Prospect.find({
+      _id: { $in: list.prospects },
+      organization: req.organization._id,
+      isArchived: false,
+      pipelineStatus: 'not-started',
+    }).select('_id').lean();
+
+    if (!toStart.length) {
+      return res.json({ success: true, started: 0, message: 'Nothing left to start in this campaign.' });
+    }
+
+    await Prospect.updateMany(
+      { _id: { $in: toStart.map((prospect) => prospect._id) } },
+      { $set: { pipelineStatus: 'pending', pipelineError: null, pipelinePaused: false, pipelinePausedAt: null } }
+    );
+
+    // The queue runs one prospect at a time, so these line up behind each other
+    // and the campaign works through them in order. Pausing one takes only that
+    // one out (see pauseControl.js) — the rest keep moving.
+    for (const prospect of toStart) {
+      await queuePipelineRun(prospect._id).catch((err) =>
+        console.error(`Queue error for ${prospect._id}:`, err.message)
+      );
+    }
+
+    res.json({
+      success: true,
+      started: toStart.length,
+      message: `Started enrichment for ${toStart.length} prospect(s).`,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 // POST /api/prospect-lists/:id/pause
 export const pauseCampaign = async (req, res) => {
   try {
@@ -1016,23 +1076,36 @@ export const pauseCampaign = async (req, res) => {
       return res.status(error.status).json({ success: false, message: error.message });
     }
 
-    const statusesToPause = ['pending', 'discovering', 'enriching', 'classifying', 'scoring', 'generating'];
+    const toPause = await Prospect.find({
+      _id: { $in: list.prospects },
+      pipelineStatus: { $in: ACTIVE_PIPELINE_STATUSES },
+      pipelinePaused: false,
+    }).select('_id pipelineStatus').lean();
 
-    await Prospect.updateMany(
-      {
-        _id: { $in: list.prospects },
-        pipelineStatus: { $in: statusesToPause },
-        pipelinePaused: false
-      },
-      {
-        $set: {
-          pipelinePaused: true,
-          pipelinePausedAt: new Date(),
-        }
-      }
-    );
+    // Per prospect rather than one updateMany: the queued ones have to be
+    // pulled out of BullMQ to stop for real, and only pauseProspectRun knows
+    // which of them was still cancellable. Sequential on purpose — this is a
+    // handful of Redis calls, and racing them risks removing a job the worker
+    // is in the middle of locking.
+    let stoppedImmediately = 0;
+    for (const prospect of toPause) {
+      const { immediate } = await pauseProspectRun(prospect);
+      if (immediate) stoppedImmediately += 1;
+    }
 
-    res.json({ success: true, message: 'Campaign paused successfully.' });
+    // Whatever was mid-run keeps going until its current layer returns, so say
+    // so rather than reporting a clean stop that has not happened yet.
+    const stillFinishing = toPause.length - stoppedImmediately;
+
+    res.json({
+      success: true,
+      paused: toPause.length,
+      stoppedImmediately,
+      stillFinishing,
+      message: stillFinishing
+        ? `Paused ${toPause.length} prospect(s). ${stillFinishing} will stop after the current step finishes.`
+        : `Paused ${toPause.length} prospect(s).`,
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

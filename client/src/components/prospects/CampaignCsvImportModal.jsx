@@ -126,10 +126,10 @@ export default function CampaignCsvImportModal({ campaign, onClose, onImported }
     onSuccess: (res) => {
       const { created, skipped } = res.data.data;
       toast.success(
-        `Imported ${created} prospect${created === 1 ? '' : 's'}${skipped ? ` (${skipped} skipped as duplicates or over limit)` : ''}.`
+        `Imported ${created} prospect${created === 1 ? '' : 's'}${skipped ? ` (${skipped} skipped as duplicates or over limit)` : ''} — press Start enrichment when ready.`
       );
       if (res.data.campaignSettingsMissing) {
-        toast('Set a campaign goal in Strategy to start the AI pipeline for these prospects.', { icon: '⚠️' });
+        toast('Set a campaign goal in Strategy before enriching these prospects.', { icon: '⚠️' });
       }
       queryClient.invalidateQueries({ queryKey: ['prospects'] });
       queryClient.invalidateQueries({ queryKey: ['prospect-lists'] });

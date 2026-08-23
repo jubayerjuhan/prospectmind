@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import { Users, TrendingUp, CheckCircle, Clock, Sparkles, ArrowRight, Plus } from 'lucide-react';
+import { STATUS_LABEL } from '../components/campaigns/prospectStatus';
 
 const StatCard = ({ label, value, icon: Icon, color }) => (
   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
@@ -26,7 +27,9 @@ const StatCardSkeleton = () => (
   </div>
 );
 
+
 const statusColors = {
+  'not-started': 'bg-slate-800/80 text-slate-400',
   pending: 'bg-slate-700 text-slate-300',
   ready: 'bg-green-900/50 text-green-400',
   failed: 'bg-red-900/50 text-red-400',
@@ -71,7 +74,7 @@ export default function DashboardPage() {
             <StatCard label="Prospects this month" value={usage?.used} icon={Users} color="bg-indigo-600" />
             <StatCard label="Plan limit" value={usage?.limit === Infinity ? '∞' : usage?.limit} icon={TrendingUp} color="bg-purple-600" />
             <StatCard label="Ready" value={prospects.filter((p) => p.pipelineStatus === 'ready').length} icon={CheckCircle} color="bg-green-600" />
-            <StatCard label="Processing" value={prospects.filter((p) => !['ready', 'failed', 'pending'].includes(p.pipelineStatus)).length} icon={Clock} color="bg-yellow-600" />
+            <StatCard label="Processing" value={prospects.filter((p) => !['ready', 'failed', 'pending', 'not-started', 'paused'].includes(p.pipelineStatus)).length} icon={Clock} color="bg-yellow-600" />
           </>
         )}
       </div>
@@ -156,7 +159,7 @@ export default function DashboardPage() {
                     <span className="text-indigo-400 font-bold text-sm">{p.compatibilityScore}/100</span>
                   )}
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColors[p.pipelineStatus] || 'bg-slate-700 text-slate-300'}`}>
-                    {p.pipelineStatus}
+                    {STATUS_LABEL[p.pipelineStatus] || p.pipelineStatus}
                   </span>
                 </div>
               </div>

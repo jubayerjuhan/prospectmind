@@ -9,6 +9,7 @@ import {
   MapPin, CalendarDays, Globe, Briefcase, Check, Copy, AlertTriangle, Layers,
   Clock, Plus, CheckSquare, Square, Target, UserPlus, BookOpen,
 } from 'lucide-react';
+import { STATUS_LABEL } from '../components/campaigns/prospectStatus';
 
 const CONTACT_ICON = {
   email: Mail,
@@ -39,7 +40,9 @@ const contactHref = (contact) => {
   return contact.value;
 };
 
+
 const STATUS_COLOR = {
+  'not-started': 'bg-slate-800/80 text-slate-400 ring-slate-700',
   pending: 'bg-slate-800 text-slate-300 ring-slate-700',
   ready: 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/25',
   failed: 'bg-red-500/10 text-red-300 ring-red-500/25',
@@ -1168,7 +1171,7 @@ export default function CompanyDetailPage() {
                         }`}
                       >
                         <span className="h-1.5 w-1.5 rounded-full bg-current opacity-70" />
-                        {p.pipelineStatus}
+                        {STATUS_LABEL[p.pipelineStatus] || p.pipelineStatus}
                       </span>
                       <ChevronRight
                         size={15}

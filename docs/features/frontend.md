@@ -36,9 +36,19 @@ Protected routes are wrapped in `AppLayout.jsx`, which redirects to `/login` whe
 
 ```
 components/
+├── ui/            MicButton · ConfirmDialog — the confirmation before anything
+│                    destructive. window.confirm cannot name the record or say
+│                    what the blast radius is, and "remove from campaign" vs
+│                    "delete prospect" is exactly the distinction a user needs
+│                    spelled out before they click
 ├── layout/        AppLayout · Sidebar · LinkedInSessionBanner · LinkedInSessionModal
 ├── prospects/     AddProspectModal · EditProspectModal · BulkUploadModal
+│                  (creation flows no longer promise enrichment — prospects are
+│                   created 'not-started' and started explicitly)
 │                  ProspectListModal · CampaignImportModal · PersonaRadar
+│                  PipelineActivity — live, plain-language trace of a pipeline
+│                    run (prospect.pipelineActivity[]); open and auto-scrolling
+│                    while active, collapsed to a summary once finished
 │                  CampaignCsvImportModal — column mapping + preview; the CSV
 │                    parser itself now lives in lib/csv.js, shared with the
 │                    newsletter importer
@@ -85,6 +95,15 @@ updateUser(user)
 logout()
 ```
 
+### Status vocabulary — `components/campaigns/prospectStatus.js`
+
+One module owns `STATUS_COLOR`, `STATUS_LABEL`, `ACTIVE_PIPELINE_STATUSES`,
+`isPausing()` and `livePollInterval()`; the pool, campaign, dashboard and
+company pages all read from it so a status never reads differently in two
+places. `isPausing()` exists because a pause on a *running* prospect is only a
+request — the row keeps its active status until the layer finishes, and showing
+"Paused" there would be contradicted by the next poll.
+
 ### React Query
 All server data. Key patterns:
 
@@ -92,10 +111,14 @@ All server data. Key patterns:
 // List with polling (live pipeline status)
 useQuery({ queryKey: ['prospects', search, filter], refetchInterval: 8000 })
 
-// Single prospect — polls only while processing
+// Single prospect — polls only while processing.
+// ⚠️ React Query v5 passes the QUERY to refetchInterval, not the data. The v4
+// signature `(data) => ...` silently reads undefined and returns false, so the
+// query never polls and the page only updates on a manual refresh. Always go
+// through query.state.data:
 useQuery({
   queryKey: ['prospect', id],
-  refetchInterval: (data) => isProcessing(data) ? 5000 : false
+  refetchInterval: (query) => isProcessing(query.state.data) ? 2000 : false
 })
 
 useMutation({ mutationFn, onSuccess: () => queryClient.invalidateQueries(...) })

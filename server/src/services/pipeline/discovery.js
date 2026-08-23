@@ -10,6 +10,7 @@
  */
 
 import { askClaude, AIFallbackRequiredError } from '../ai/claudeClient.js';
+import { logActivity } from './activityLog.js';
 
 const SERPER_API_URL = 'https://google.serper.dev/search';
 
@@ -116,6 +117,12 @@ const findLinkedinUrl = async (fullName, company) => {
 
     if (urls.length > 0) {
       console.log(`[discovery] ✅ Found LinkedIn: ${urls.join(', ')}`);
+      logActivity(
+        urls.length === 1
+          ? 'Found a matching LinkedIn profile'
+          : `Found ${urls.length} possible LinkedIn profiles`,
+        { step: 'discovery', level: 'success' }
+      );
       return { urls, results };
     }
 
@@ -123,6 +130,7 @@ const findLinkedinUrl = async (fullName, company) => {
   }
 
   console.log(`[discovery] ❌ No LinkedIn found after all strategies`);
+  logActivity('No LinkedIn profile found under that name', { step: 'discovery', level: 'warn' });
   return { urls: [], results: [] };
 };
 
@@ -194,6 +202,7 @@ export const resolveIdentity = async (prospect, { callAI = askClaude, prospectCo
   // User already provided LinkedIn — skip search
   if (rawLinkedin) {
     console.log(`[discovery] LinkedIn provided manually for ${fullName}, skipping search`);
+    logActivity('Using the LinkedIn profile you provided', { step: 'discovery', level: 'success' });
     return {
       linkedinUrl: rawLinkedin,
       githubUrl: rawGithub || null,
@@ -207,6 +216,7 @@ export const resolveIdentity = async (prospect, { callAI = askClaude, prospectCo
   }
 
   // ── Step 1: Find LinkedIn via smart fallback search ───────────────────────
+  logActivity(`Searching the web for ${fullName}`, { step: 'discovery' });
   const { urls: linkedinCandidates, results: linkedinResults } = await findLinkedinUrl(fullName, company || '');
 
   // ── Step 2: Find GitHub ───────────────────────────────────────────────────
@@ -219,6 +229,12 @@ export const resolveIdentity = async (prospect, { callAI = askClaude, prospectCo
     githubResults = await searchGoogle(githubQuery);
     githubCandidates = extractGithubUrls(githubResults);
     console.log(`[discovery] GitHub candidates: ${githubCandidates.join(', ') || 'none'}`);
+    if (githubCandidates.length) {
+      logActivity(`Found a GitHub account: @${githubCandidates[0].split('/').pop()}`, {
+        step: 'discovery',
+        level: 'success',
+      });
+    }
   }
 
   const allSnippets = [...linkedinResults, ...githubResults];
@@ -226,6 +242,10 @@ export const resolveIdentity = async (prospect, { callAI = askClaude, prospectCo
   // ── Step 3: No candidates at all → return empty ───────────────────────────
   if (linkedinCandidates.length === 0 && githubCandidates.length === 0) {
     console.log(`[discovery] No social profiles found for ${fullName}`);
+    logActivity('No public profiles found — the profile will be thin', {
+      step: 'discovery',
+      level: 'warn',
+    });
     return {
       linkedinUrl: null,
       githubUrl: null,
@@ -254,7 +274,14 @@ export const resolveIdentity = async (prospect, { callAI = askClaude, prospectCo
   }
 
   // ── Step 5: Multiple candidates → AI picks the best one ─────────────────
+  logActivity('Checking which profile is the right person', { step: 'discovery' });
   const verified = await verifyWithAI(prospect, linkedinCandidates, githubCandidates, allSnippets, callAI, prospectContext);
+  logActivity(
+    verified.linkedinUrl
+      ? `Confirmed their identity (${verified.confidenceScore}% confidence)`
+      : 'Could not confirm which profile belongs to this person',
+    { step: 'discovery', level: verified.linkedinUrl ? 'success' : 'warn' }
+  );
 
   return {
     linkedinUrl: verified.linkedinUrl,

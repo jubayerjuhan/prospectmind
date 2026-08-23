@@ -1,6 +1,9 @@
 import { useNavigate } from 'react-router-dom';
-import { ChevronRight, ChevronLeft, Pause, Play, RefreshCw } from 'lucide-react';
-import { STATUS_COLOR, PRIORITY_COLOR, ACTIVE_PIPELINE_STATUSES, AI_PROVIDER_BADGE } from './prospectStatus';
+import { ChevronRight, ChevronLeft, Pause, Play, RefreshCw, Sparkles, Loader2, Trash2, MinusCircle } from 'lucide-react';
+import {
+  STATUS_COLOR, STATUS_LABEL, PRIORITY_COLOR, ACTIVE_PIPELINE_STATUSES,
+  AI_PROVIDER_BADGE, isPausing,
+} from './prospectStatus';
 
 /** The prospect table shared by the campaign view and the prospect pool. */
 export default function ProspectTable({
@@ -11,8 +14,14 @@ export default function ProspectTable({
   onToggle,
   onToggleAll,
   onRetry,
+  onStart,
   onPause,
   onResume,
+  onDelete,
+  // Only the campaign view passes this: removing from a campaign and deleting
+  // the prospect are different actions, and the row has to offer both without
+  // implying one does the other.
+  onRemoveFromCampaign,
   page,
   totalPages,
   total,
@@ -95,9 +104,19 @@ export default function ProspectTable({
                     {prospect.outreachPriority || '—'}
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLOR[prospect.pipelineStatus] || ''}`}>
-                      {prospect.pipelineStatus}
-                    </span>
+                    {isPausing(prospect) ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-300">
+                        <Loader2 size={11} className="animate-spin" />
+                        Pausing…
+                      </span>
+                    ) : (
+                      <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLOR[prospect.pipelineStatus] || ''}`}>
+                        {ACTIVE_PIPELINE_STATUSES.includes(prospect.pipelineStatus) && (
+                          <Loader2 size={11} className="animate-spin" />
+                        )}
+                        {STATUS_LABEL[prospect.pipelineStatus] || prospect.pipelineStatus}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     {prospect.aiProviderUsed && AI_PROVIDER_BADGE[prospect.aiProviderUsed] ? (
@@ -110,7 +129,17 @@ export default function ProspectTable({
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      {ACTIVE_PIPELINE_STATUSES.includes(prospect.pipelineStatus) && (
+                      {prospect.pipelineStatus === 'not-started' && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onStart?.(prospect._id); }}
+                          className="flex items-center gap-1 rounded-md bg-indigo-500/15 px-2 py-1 text-xs font-medium text-indigo-300 transition hover:bg-indigo-500/25"
+                          title="Start enrichment"
+                        >
+                          <Sparkles size={12} />
+                          Start
+                        </button>
+                      )}
+                      {ACTIVE_PIPELINE_STATUSES.includes(prospect.pipelineStatus) && !isPausing(prospect) && (
                         <button
                           onClick={(e) => { e.stopPropagation(); onPause(prospect._id); }}
                           className="text-slate-500 transition hover:text-amber-300"
@@ -135,6 +164,24 @@ export default function ProspectTable({
                           title="Retry pipeline"
                         >
                           <RefreshCw size={14} />
+                        </button>
+                      )}
+                      {onRemoveFromCampaign && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onRemoveFromCampaign(prospect); }}
+                          className="text-slate-500 transition hover:text-amber-300"
+                          title="Remove from this campaign (keeps the prospect)"
+                        >
+                          <MinusCircle size={14} />
+                        </button>
+                      )}
+                      {onDelete && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onDelete(prospect); }}
+                          className="text-slate-500 transition hover:text-red-400"
+                          title="Delete prospect"
+                        >
+                          <Trash2 size={14} />
                         </button>
                       )}
                       <ChevronRight size={14} className="text-slate-600" />

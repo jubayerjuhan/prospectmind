@@ -3,12 +3,17 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
-import { Plus, Search, RefreshCw, ChevronRight, Upload, ChevronLeft } from 'lucide-react';
+import { Plus, Search, RefreshCw, ChevronRight, Upload, ChevronLeft, Sparkles, Loader2, Pause, Trash2 } from 'lucide-react';
 import AddProspectModal from '../components/prospects/AddProspectModal';
 import BulkUploadModal from '../components/prospects/BulkUploadModal';
 import ScoreCell from '../components/prospects/ScoreCell';
+import ConfirmDialog from '../components/ui/ConfirmDialog';
+import {
+  STATUS_LABEL, ACTIVE_PIPELINE_STATUSES, isPausing, livePollInterval,
+} from '../components/campaigns/prospectStatus';
 
 const STATUS_COLOR = {
+  'not-started': 'bg-slate-800/80 text-slate-400 border border-slate-700',
   pending: 'bg-slate-700 text-slate-300',
   ready: 'bg-green-900/50 text-green-400',
   failed: 'bg-red-900/50 text-red-400',
@@ -39,6 +44,7 @@ export default function ProspectsPage() {
   const [page, setPage] = useState(1);
   const [showAdd, setShowAdd] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
+  const [deleting, setDeleting] = useState(null);   // the prospect awaiting confirmation
 
   const { data, isLoading } = useQuery({
     queryKey: ['prospects', search, statusFilter, priorityFilter, page],
@@ -46,7 +52,9 @@ export default function ProspectsPage() {
       api.get('/prospects', {
         params: { search, status: statusFilter, priority: priorityFilter, limit: PAGE_SIZE, page },
       }).then((r) => r.data),
-    refetchInterval: 8000,
+    // Fast while any row is mid-run, idle cadence otherwise. v5 hands this the
+    // query, not the data.
+    refetchInterval: (query) => livePollInterval(query.state.data?.data) || 8000,
     keepPreviousData: true,
   });
 
@@ -56,6 +64,36 @@ export default function ProspectsPage() {
       toast.success('Pipeline restarted');
       queryClient.invalidateQueries({ queryKey: ['prospects'] });
     },
+  });
+
+  // Prospects are created 'not-started' — enrichment only runs when asked for.
+  const startMutation = useMutation({
+    mutationFn: (id) => api.post(`/prospects/${id}/start`),
+    onSuccess: (res) => {
+      toast.success(res.data?.message || 'Enrichment started');
+      queryClient.invalidateQueries({ queryKey: ['prospects'] });
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'Could not start enrichment'),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id) => api.delete(`/prospects/${id}`),
+    onSuccess: (res) => {
+      toast.success(res.data?.message || 'Prospect deleted');
+      queryClient.invalidateQueries({ queryKey: ['prospects'] });
+      queryClient.invalidateQueries({ queryKey: ['prospect-lists'] });
+      setDeleting(null);
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to delete prospect'),
+  });
+
+  const pauseMutation = useMutation({
+    mutationFn: (id) => api.post(`/prospects/${id}/pause`),
+    onSuccess: (res) => {
+      toast.success(res.data?.message || 'Pause requested');
+      queryClient.invalidateQueries({ queryKey: ['prospects'] });
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'Could not pause'),
   });
 
   const prospects = data?.data || [];
@@ -118,7 +156,7 @@ export default function ProspectsPage() {
         >
           <option value="">All statuses</option>
           {Object.keys(STATUS_COLOR).map((status) => (
-            <option key={status} value={status}>{status}</option>
+            <option key={status} value={status}>{STATUS_LABEL[status] || status}</option>
           ))}
         </select>
         <select
@@ -183,9 +221,19 @@ export default function ProspectsPage() {
                     {prospect.outreachPriority || '—'}
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLOR[prospect.pipelineStatus] || ''}`}>
-                      {prospect.pipelineStatus}
-                    </span>
+                    {isPausing(prospect) ? (
+                      <span className="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full font-medium bg-amber-900/50 text-amber-300">
+                        <Loader2 size={11} className="animate-spin" />
+                        Pausing…
+                      </span>
+                    ) : (
+                      <span className={`inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLOR[prospect.pipelineStatus] || ''}`}>
+                        {ACTIVE_PIPELINE_STATUSES.includes(prospect.pipelineStatus) && (
+                          <Loader2 size={11} className="animate-spin" />
+                        )}
+                        {STATUS_LABEL[prospect.pipelineStatus] || prospect.pipelineStatus}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     {prospect.aiProviderUsed && AI_PROVIDER_BADGE[prospect.aiProviderUsed] ? (
@@ -198,6 +246,31 @@ export default function ProspectsPage() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
+                      {prospect.pipelineStatus === 'not-started' && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startMutation.mutate(prospect._id);
+                          }}
+                          className="flex items-center gap-1 rounded-md bg-indigo-500/15 px-2 py-1 text-xs font-medium text-indigo-300 transition hover:bg-indigo-500/25"
+                          title="Start enrichment"
+                        >
+                          <Sparkles size={12} />
+                          Start
+                        </button>
+                      )}
+                      {ACTIVE_PIPELINE_STATUSES.includes(prospect.pipelineStatus) && !isPausing(prospect) && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            pauseMutation.mutate(prospect._id);
+                          }}
+                          className="text-slate-500 hover:text-amber-300 transition"
+                          title="Pause pipeline"
+                        >
+                          <Pause size={14} />
+                        </button>
+                      )}
                       {prospect.pipelineStatus === 'failed' && (
                         <button
                           onClick={(e) => {
@@ -210,6 +283,16 @@ export default function ProspectsPage() {
                           <RefreshCw size={14} />
                         </button>
                       )}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleting(prospect);
+                        }}
+                        className="text-slate-500 hover:text-red-400 transition"
+                        title="Delete prospect"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                       <ChevronRight size={14} className="text-slate-600" />
                     </div>
                   </td>
@@ -268,6 +351,24 @@ export default function ProspectsPage() {
 
       {showAdd && <AddProspectModal onClose={() => setShowAdd(false)} />}
       {showBulk && <BulkUploadModal onClose={() => setShowBulk(false)} />}
+      {deleting && (
+        <ConfirmDialog
+          title="Delete prospect?"
+          message={
+            <>
+              <strong className="text-slate-200">
+                {`${deleting.firstName} ${deleting.lastName || ''}`.trim()}
+              </strong>{' '}
+              will be removed from every campaign and from your prospects, along with their
+              enrichment, score and drafted messages.
+            </>
+          }
+          confirmLabel="Delete prospect"
+          isPending={deleteMutation.isPending}
+          onConfirm={() => deleteMutation.mutate(deleting._id)}
+          onClose={() => setDeleting(null)}
+        />
+      )}
     </div>
   );
 }
