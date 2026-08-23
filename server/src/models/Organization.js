@@ -24,6 +24,22 @@ const organizationSchema = new mongoose.Schema(
       prospectsThisMonth: { type: Number, default: 0 },
       lastResetAt: { type: Date, default: Date.now },
     },
+    // ── API key ──────────────────────────────────────────────────────────────
+    // For external tools (lemlist and friends) pulling generated outreach.
+    // A JWT cannot serve here: the access token expires in 15 minutes and no
+    // third-party integration can run the refresh dance.
+    //
+    // Only a SHA-256 hash is stored. The plaintext key is shown once, at
+    // creation, and is unrecoverable afterwards — a leaked database must not
+    // hand out live credentials to every customer's prospect data.
+    apiKey: {
+      hash: { type: String, index: true, sparse: true },
+      last4: String,          // so the UI can identify which key is installed
+      createdAt: Date,
+      createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      lastUsedAt: Date,       // the cheapest way to answer "is the integration live?"
+    },
+
     // Settings
     settings: {
       defaultEcosystem: { type: String, default: 'web3' }, // web3 | web2 | any

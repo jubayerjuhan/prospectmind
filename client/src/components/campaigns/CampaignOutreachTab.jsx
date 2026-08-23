@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
   Mail, Briefcase, AtSign, MessageCircle, Send, Plus, Trash2, Play, RefreshCw, Loader2,
-  AlertTriangle, Sparkles, Save, Copy, ChevronDown, ChevronUp, Clock,
+  AlertTriangle, Sparkles, Save, Copy, ChevronDown, ChevronUp, Clock, Download,
 } from 'lucide-react';
 import api from '../../lib/api';
 
@@ -157,6 +157,39 @@ export default function CampaignOutreachTab({ campaign }) {
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to start generation'),
   });
 
+  // The file is built server-side, so this is a normal authenticated request
+  // whose response happens to be a file — not a plain <a href>, which would
+  // carry no bearer token and come back 401.
+  const exportMutation = useMutation({
+    mutationFn: () =>
+      api.get(`/prospect-lists/${campaign._id}/outreach/export`, { responseType: 'blob' }),
+    onSuccess: (res) => {
+      // Prefer the filename the server chose; it already carries the campaign
+      // name and the date.
+      const disposition = res.headers['content-disposition'] || '';
+      const named = /filename="?([^"]+)"?/.exec(disposition)?.[1];
+      const url = URL.createObjectURL(res.data);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = named || 'outreach.csv';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      toast.success('CSV downloaded');
+    },
+    onError: async (err) => {
+      // An error response arrives as a Blob too, so the JSON message inside it
+      // has to be read back out rather than plucked off err.response.data.
+      let message = 'Export failed';
+      try {
+        const parsed = JSON.parse(await err.response?.data?.text?.());
+        message = parsed?.message || message;
+      } catch { /* keep the generic message */ }
+      toast.error(message);
+    },
+  });
+
   const setStep = (index, patch) =>
     setSequence((steps) => steps.map((s, i) => (i === index ? { ...s, ...patch } : s)));
 
@@ -294,6 +327,16 @@ export default function CampaignOutreachTab({ campaign }) {
               <Play size={15} />
             )}
             {isGenerating ? 'Writing…' : generated.length > 0 ? 'Regenerate' : 'Generate outreach'}
+          </button>
+          <button
+            type="button"
+            onClick={() => exportMutation.mutate()}
+            disabled={generated.length === 0 || exportMutation.isPending}
+            className="flex items-center gap-2 rounded-xl border border-slate-700 px-4 py-2.5 text-sm text-slate-300 transition hover:border-indigo-500/50 hover:text-indigo-300 disabled:cursor-not-allowed disabled:opacity-40"
+            title="Download every prospect's contacts and generated messages as a CSV"
+          >
+            {exportMutation.isPending ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
+            Export CSV
           </button>
         </div>
 

@@ -96,6 +96,7 @@ server/src/
     │   ├── activityLog.js        # user-facing run narration (AsyncLocalStorage-scoped)
     │   ├── pauseControl.js       # pause: dequeue if not started, cooperative if running
     │   ├── jobId.js              # the one BullMQ job id per prospect (unit-tested)
+    │   └── (campaign/outreachExport.js — one lead shape for the CSV and the JSON API)
     │   ├── profileSnapshot.js
     │   └── githubTalentQueue.js
     ├── company/

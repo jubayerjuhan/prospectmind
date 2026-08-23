@@ -56,6 +56,8 @@ A `ProspectList` **is** a campaign (v2 Phase D). It carries membership, strategy
 | POST | `/prospect-lists/:id/import-preview` · `/import-confirm` | Two-step bulk import |
 | GET | `/prospect-lists/:id/outreach` | Generated sequences + status |
 | POST | `/prospect-lists/:id/outreach/generate` | Build per-prospect sequences from **stored knowledge only** (skips non-ready prospects) |
+| GET | `/prospect-lists/:id/outreach/export` | Generated sequences as CSV — one row per prospect, contacts + each step's message in its own columns |
+| GET | `/prospect-lists/:id/outreach/leads` | Same data as JSON, for external tools (lemlist). **Accepts an organization API key** via `x-api-key`, or a normal session. `?includeSkipped=true` to include skipped prospects |
 | POST | `/prospect-lists/:id/start` | Start every `not-started` prospect in the campaign (blocked by the campaign-goal gate) |
 | POST | `/prospect-lists/:id/pause` · `/resume` | Pause/resume campaign processing. Pause reports `stoppedImmediately` vs `stillFinishing` |
 
@@ -229,8 +231,29 @@ and they get injected verbatim into outreach.
 | POST | `/organization/linkedin-session` | 🔒 owner/admin | Set the session from a pasted `li_at` |
 | DELETE | `/organization/linkedin-session` | 🔒 owner/admin | **Destructive** — drops the cookie jar; cannot be restored |
 | POST · GET · DELETE | `/organization/linkedin-session/live` | 🔒 owner/admin | Start / poll / stop the remote-driven Chrome login |
+| GET | `/organization/api-key` | 🔒 owner/admin | Metadata only — `{ exists, last4, createdAt, lastUsedAt }`. The key itself is unrecoverable |
+| POST | `/organization/api-key` | 🔒 owner/admin | Create or rotate. **Returns the plaintext key once**; rotating invalidates the previous one immediately |
+| DELETE | `/organization/api-key` | 🔒 owner/admin | Revoke without issuing a replacement |
 
 > The LinkedIn session is a **single shared platform-level document**, not per-org — the one deliberate exception to org scoping.
+
+### API keys
+
+One key per organization, for external tools pulling generated outreach. A JWT
+cannot serve that purpose — the access token lives 15 minutes and no third-party
+integration can run the refresh dance.
+
+- Format `pm_live_<64 hex>`. The prefix makes a leaked key identifiable in a log,
+  a repo, or a secret scanner.
+- **Only a SHA-256 hash is stored** (`Organization.apiKey.hash`). SHA-256 rather
+  than bcrypt is correct here: the input is 32 bytes of CSPRNG output, so there
+  is nothing to brute-force, and a fast hash keeps per-request verification cheap.
+- Presented as `x-api-key` (or `Authorization: Bearer pm_live_…`) and accepted by
+  `apiKeyOrProtect`, which is mounted on **only** the leads endpoint. Keeping it
+  off everything else is deliberate: a key that could drive the whole API would
+  be a much bigger thing to leak.
+- `req.user` is null on key-authenticated requests — there is no person on the
+  other end — so no handler behind this middleware may read it.
 
 ---
 

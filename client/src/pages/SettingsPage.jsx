@@ -8,6 +8,7 @@ import { useAuthStore } from '../stores/authStore';
 import PersonasSettings from '../components/settings/PersonasSettings';
 import PlaybooksSettings from '../components/settings/PlaybooksSettings';
 import SignalsSettings from '../components/settings/SignalsSettings';
+import ApiKeySettings from '../components/settings/ApiKeySettings';
 
 // Live Login streams a real browser over VNC-over-WebSocket, bridged by
 // server/src/services/scraper/vncBridge.js at the same path/origin as the
@@ -23,6 +24,9 @@ export default function SettingsPage() {
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const canManageLinkedInSession = user?.role === 'owner' || user?.role === 'admin';
+  // Same roles, named for what it gates — the server enforces it with
+  // requireRole('owner', 'admin') on the /organization/api-key routes.
+  const canManageApiKey = user?.role === 'owner' || user?.role === 'admin';
 
   // Settings local state
   const [name, setName] = useState('');
@@ -484,6 +488,7 @@ export default function SettingsPage() {
       <PersonasSettings />
       <PlaybooksSettings />
       <SignalsSettings />
+      {canManageApiKey && <ApiKeySettings />}
     </div>
   );
 }

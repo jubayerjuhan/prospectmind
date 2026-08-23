@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { protect } from '../middleware/auth.js';
+import { protect, apiKeyOrProtect } from '../middleware/auth.js';
 import {
   addProspectsToList,
   addAndCreateProspect,
@@ -17,9 +17,16 @@ import {
   resumeCampaign,
   getCampaignOutreach,
   generateCampaignOutreach,
+  exportCampaignOutreach,
+  getCampaignOutreachLeads,
 } from '../controllers/prospectListController.js';
 
 const router = Router();
+
+// Mounted BEFORE the blanket protect: this is the one route an external
+// integration (lemlist) calls, so it accepts an organization API key as well as
+// a session. Everything below stays session-only.
+router.get('/:id/outreach/leads', apiKeyOrProtect, getCampaignOutreachLeads);
 
 router.use(protect);
 
@@ -36,6 +43,7 @@ router.post('/:id/import-preview', importProspectPreview);
 router.post('/:id/import-confirm', importProspectsConfirm);
 router.get('/:id/outreach', getCampaignOutreach);
 router.post('/:id/outreach/generate', generateCampaignOutreach);
+router.get('/:id/outreach/export', exportCampaignOutreach);
 router.post('/:id/start', startCampaign);
 router.post('/:id/pause', pauseCampaign);
 router.post('/:id/resume', resumeCampaign);

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { protect, requireRole } from '../middleware/auth.js';
 import Organization from '../models/Organization.js';
+import { generateApiKey } from '../services/apiKey.js';
 import LinkedInSession from '../models/LinkedInSession.js';
 import { refreshLinkedInSessionFromCookie } from '../services/scraper/linkedinScraper.js';
 import * as linkedinLiveLogin from '../services/scraper/linkedinLiveLogin.js';
@@ -147,6 +148,59 @@ router.delete('/linkedin-session/live', requireRole('owner', 'admin'), async (re
   try {
     const status = await linkedinLiveLogin.stop();
     res.json({ success: true, data: status });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// GET /api/organization/api-key — metadata only; the key itself is unrecoverable.
+router.get('/api-key', requireRole('owner', 'admin'), async (req, res) => {
+  try {
+    const org = await Organization.findById(req.organization._id).select('apiKey').lean();
+    const key = org?.apiKey;
+    res.json({
+      success: true,
+      data: key?.hash
+        ? { exists: true, last4: key.last4, createdAt: key.createdAt, lastUsedAt: key.lastUsedAt || null }
+        : { exists: false },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// POST /api/organization/api-key — create or rotate.
+//
+// The plaintext is returned exactly once, here. Rotating immediately invalidates
+// the previous key, so anything still using it starts failing — which is the
+// intended behaviour when a key is believed to have leaked.
+router.post('/api-key', requireRole('owner', 'admin'), async (req, res) => {
+  try {
+    const { key, hash, last4 } = generateApiKey();
+    await Organization.findByIdAndUpdate(req.organization._id, {
+      $set: {
+        'apiKey.hash': hash,
+        'apiKey.last4': last4,
+        'apiKey.createdAt': new Date(),
+        'apiKey.createdBy': req.user._id,
+        'apiKey.lastUsedAt': null,
+      },
+    });
+    res.json({
+      success: true,
+      data: { key, last4 },
+      message: 'Store this key now — it cannot be shown again.',
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// DELETE /api/organization/api-key — revoke without issuing a replacement.
+router.delete('/api-key', requireRole('owner', 'admin'), async (req, res) => {
+  try {
+    await Organization.findByIdAndUpdate(req.organization._id, { $unset: { apiKey: '' } });
+    res.json({ success: true, message: 'API key revoked.' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

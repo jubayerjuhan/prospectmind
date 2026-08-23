@@ -7,6 +7,8 @@ import Signal from '../models/Signal.js';
 import { buildProspectFilter } from '../utils/buildProspectFilter.js';
 import { queuePipelineRun } from '../services/pipeline/queue.js';
 import { pauseProspectRun, ACTIVE_PIPELINE_STATUSES } from '../services/pipeline/pauseControl.js';
+import { toCsv, safeFilename } from '../utils/csv.js';
+import { buildOutreachLeads, outreachCsvColumns } from '../services/campaign/outreachExport.js';
 import { ensureCompanyLink } from '../services/company/companyResolver.js';
 import { previewSpeakerImport } from '../services/scraper/speakerImportService.js';
 import { executeCampaignOutreach } from '../services/campaign/campaignExecutor.js';
@@ -1007,6 +1009,78 @@ export const generateCampaignOutreach = async (req, res) => {
     );
 
     res.json({ success: true, message: 'Outreach generation started.', status: 'generating' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Shared by the CSV download and the JSON endpoint below.
+const loadCampaignForExport = async (listId, organizationId) =>
+  ProspectList.findOne({ _id: listId, organization: organizationId, isArchived: false })
+    .select('name sequence outreach')
+    .lean();
+
+// GET /api/prospect-lists/:id/outreach/export
+//
+// The generated sequences as a CSV: one row per prospect, with every way to
+// reach them and each step's message in its own columns.
+export const exportCampaignOutreach = async (req, res) => {
+  try {
+    const list = await loadCampaignForExport(req.params.id, req.organization._id);
+    if (!list) return res.status(404).json({ success: false, message: 'Campaign not found.' });
+
+    const { leads, maxSteps } = await buildOutreachLeads(list, req.organization._id);
+    if (!leads.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'Nothing to export yet — generate the outreach sequences first.',
+      });
+    }
+
+    const filename = safeFilename(`${list.name} outreach ${new Date().toISOString().slice(0, 10)}`);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(toCsv(outreachCsvColumns(maxSteps), leads));
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// GET /api/prospect-lists/:id/outreach/leads
+//
+// The same data as JSON, for an external tool (lemlist) to pull on a schedule.
+// Authenticated by organization API key OR a normal session — see
+// apiKeyOrProtect. Flat camelCase keys are deliberate: lemlist maps them
+// straight onto lead fields and custom variables, so {{step1Message}} works in
+// a template with no transformation in between.
+export const getCampaignOutreachLeads = async (req, res) => {
+  try {
+    const list = await loadCampaignForExport(req.params.id, req.organization._id);
+    if (!list) return res.status(404).json({ success: false, message: 'Campaign not found.' });
+
+    const { leads } = await buildOutreachLeads(list, req.organization._id);
+
+    // Skipped prospects have no messages; an integration pulling leads to send
+    // to almost never wants them, but the raw record should still be reachable.
+    const includeSkipped = String(req.query.includeSkipped || '') === 'true';
+    const payload = includeSkipped ? leads : leads.filter((lead) => lead.status !== 'skipped');
+
+    res.json({
+      success: true,
+      campaign: {
+        id: String(list._id),
+        name: list.name,
+        status: list.outreach?.status || 'idle',
+        lastGeneratedAt: list.outreach?.lastGeneratedAt || null,
+        sequence: (list.sequence || []).map((step) => ({
+          stepOrder: step.stepOrder,
+          channel: step.channel,
+          delayDays: step.delayDays,
+        })),
+      },
+      count: payload.length,
+      leads: payload,
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
