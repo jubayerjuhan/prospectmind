@@ -3,7 +3,7 @@
 > **Single source of truth** for what's built, what's in flight, and what's next.
 > Replaces the former `current.md`, `todos.md`, and `roadmap.md` (consolidated 2026-08-08 — they had drifted out of sync with each other and with the code).
 >
-> **Last verified against the codebase:** 2026-08-24 (lemlist push: one-campaign redesign, message formatting, reachability preview)
+> **Last verified against the codebase:** 2026-08-24 (lemlist push: multi-channel touches, per-lead reachability, dual encoding)
 > Architecture detail for the v2 redesign lives in [`redesign-v2.md`](redesign-v2.md).
 
 ---
@@ -60,29 +60,51 @@ These shipped after the v2 phases and were never in the roadmap:
 **Push a campaign into lemlist (shipped: planner, executor, client, service,
 routes, settings connector, and the button).**
 
-One ProspectMind campaign → **one** lemlist campaign. Steps are built from the
-campaign's own CONFIGURED `sequence` (`services/campaign/lemlistPush.js`,
-pure) — not from whatever channel `campaignExecutor`'s per-prospect fallback
-picked for a given lead. A prospect who can't satisfy a step (no email for an
-email step) is still pushed; that step just never fires for them in lemlist,
-the same way it wouldn't for any real campaign with a mixed contact list.
+One ProspectMind campaign → **one** lemlist campaign. Each touch (stepOrder)
+can fan out into MULTIPLE lemlist steps — one per distinct channel any lead
+actually resolved to at that position (`services/campaign/lemlistPush.js`,
+pure, see `touchesFor`). `list.sequence[i].channel` only ever decided touch
+COUNT and delay now, never the lemlist step type — that field is advisory,
+reachability is real.
 
-An earlier version bucketed leads by their per-prospect resolved channel and
-created one lemlist campaign per bucket — `Demo Campaign 2` fanned out into 4
-campaigns from 6 leads. Corrected after the user pushed back explicitly:
-"I want everything under one campaign." The per-bucket version is gone.
+Two corrections landed on top of each other here, both from the same user
+report ("why did we lose 2 leads, we clearly have 5"):
+1. An earlier version bucketed leads by their per-prospect resolved channel
+   and created one lemlist campaign per bucket — `Demo Campaign 2` fanned out
+   into 4 campaigns from 6 leads. Corrected to one campaign after explicit
+   pushback: "I want everything under one campaign."
+2. The one-campaign-per-configured-sequence version that followed still lost
+   people: `Demo Campaign 2`'s configured sequence was email-only, so three
+   prospects who only had a LinkedIn URL (no email, no fallback field the
+   sequence's steps needed) were silently unreachable — correct given the
+   design, invisible until the reachability preview (below) surfaced it. Fixed
+   by deriving each touch's channel(s) from what leads actually resolved to,
+   not from the configured sequence's single channel field.
 
-**Formatting is channel-aware.** A real push surfaced a second bug: generated
-copy's `\n\n` paragraph breaks were vanishing in lemlist's own preview
-("Hi Jubayer,I was impressed…" instead of two paragraphs), because lemlist
-substitutes `{{step1Message}}` as a literal string into
-`<p>{{step1Message}}</p>` with no newline handling of its own. Fixed per
-channel: an email-configured step's message is escaped and blank-line breaks
-become `</p><p>`, single newlines become `<br>`; a LinkedIn/manual
-(X/Telegram) step's message is left as plain text — escaping would show a
-recipient literal `&amp;` instead of `&`. Which transform applies is decided
-by what the CAMPAIGN's step is, never by what channel the individual lead's
-copy was originally written for.
+Dual-reachable leads (both email and LinkedIn on file) get BOTH steps at a
+touch — explicit product choice, asked directly: same generated text sent via
+every channel the lead has, prioritizing reach over the (real, accepted) risk
+of a duplicate-content contact. Verified live: `Demo Campaign 2` went from
+2 pushable / 4 skipped to 5 pushable / 1 skipped (the 1 is Benoit Kulesza,
+whose pipeline never finished — no contact data of any kind, not a sequence
+gap), 4 lemlist steps (email, linkedin, email, linkedin) instead of 2.
+
+**Formatting is channel-aware, and now double-encoded per touch.** A real push
+surfaced a formatting bug: generated copy's `\n\n` paragraph breaks were
+vanishing in lemlist's own preview ("Hi Jubayer,I was impressed…" instead of
+two paragraphs), because lemlist substitutes `{{step1Message}}` as a literal
+string into `<p>{{step1Message}}</p>` with no newline handling of its own.
+
+Fixing the fan-out above reintroduced this at a sharper angle: since the SAME
+touch can now be sent by both an email step (needs HTML) and a LinkedIn step
+(needs plain text) to a dual-reachable lead, one flat `stepNMessage` value
+cannot correctly serve both — HTML entities/`<br>` would appear as literal
+text in a LinkedIn DM, and raw `\n\n` still collapses in an email. Every
+message is therefore emitted in two encodings: `stepNMessage` (HTML-escaped,
+paragraph breaks converted — for an email step) and `stepNMessageText` (plain,
+untouched — for LinkedIn/manual). Each step template reads whichever key is
+correct for it; a lead who can't satisfy a given step never has that step fire
+regardless of which encoding it referenced.
 
 **A reachability preview runs before every push.** `GET
 /prospect-lists/:id/lemlist-push/preview` (`previewLemlistPush` in

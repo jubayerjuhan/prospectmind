@@ -436,10 +436,9 @@ export default function CampaignOutreachTab({ campaign }) {
             <div>
               <h3 className="font-semibold text-white">Push to lemlist</h3>
               <p className="mt-1 max-w-2xl text-xs leading-relaxed text-slate-500">
-                Creates one lemlist campaign matching this list's sequence exactly, with every prospect's
-                generated messages carried over as lead variables. A prospect who can't receive a given step
-                (no email on file for an email step, say) simply won't get that touch. Created as a draft;
-                nothing sends until you start it inside lemlist.
+                Creates one lemlist campaign that reaches everyone however they're actually reachable — email
+                where a prospect has one, LinkedIn where they don't, both if they have both. Created as a
+                draft; nothing sends until you start it inside lemlist.
               </p>
             </div>
           </div>
@@ -473,15 +472,19 @@ export default function CampaignOutreachTab({ campaign }) {
           <p className="mt-4 text-xs text-slate-600">Generate outreach above before pushing to lemlist.</p>
         )}
 
-        {/* Reachability preview — computed against the current sequence, before any commitment.
-            lemlist has no delete-campaign endpoint, so this needs to be visible before the click. */}
+        {/* Reachability preview — computed against real contact data, before any commitment.
+            lemlist has no delete-campaign endpoint, so this needs to be visible before the click.
+            The campaign auto-includes an email AND a LinkedIn step at any touch where prospects
+            need either, so what's left unreachable here has no contact info at all, not a
+            sequence-configuration gap. */}
         {preview && (
           <div className="mt-4">
             {preview.totals.skipped === 0 ? (
               <p className="flex items-center gap-2 text-xs text-emerald-400">
                 <CheckCircle2 size={13} />
                 All {preview.totals.pushable} generated sequence{preview.totals.pushable === 1 ? '' : 's'} are
-                reachable on this sequence ({sequence.map((s) => channelMeta(s.channel).label).join(' → ')}).
+                reachable — {preview.stepCount} lemlist step{preview.stepCount === 1 ? '' : 's'}, email and
+                LinkedIn wherever a prospect has either.
               </p>
             ) : (
               <div className="rounded-xl border border-amber-900/50 bg-amber-950/20 p-3">
@@ -489,9 +492,9 @@ export default function CampaignOutreachTab({ campaign }) {
                   <AlertTriangle size={13} className="mt-0.5 shrink-0" />
                   <span>
                     {preview.totals.pushable} of {preview.totals.pushable + preview.totals.skipped} generated
-                    sequences are reachable on this sequence (
-                    {sequence.map((s) => channelMeta(s.channel).label).join(' → ')}). {preview.totals.skipped}{' '}
-                    won't be pushed — add a matching step above, or push anyway and leave them out.
+                    sequences are reachable ({preview.stepCount} lemlist step
+                    {preview.stepCount === 1 ? '' : 's'}, email + LinkedIn wherever available).{' '}
+                    {preview.totals.skipped} won't be pushed — no email or LinkedIn on file for them.
                   </span>
                 </p>
                 <div className="mt-2 space-y-1 border-t border-amber-900/40 pt-2">

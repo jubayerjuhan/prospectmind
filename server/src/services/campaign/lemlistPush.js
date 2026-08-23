@@ -6,24 +6,32 @@
  * asserted in tests. `executePushPlan` (separate) only replays the plan over
  * HTTP.
  *
- * ── One campaign, not one per channel signature ───────────────────────────
- * An earlier version bucketed leads by their PER-PROSPECT resolved channel
- * (campaignExecutor's generateSequenceForProspect falls back to whatever
- * channel a prospect actually has, e.g. LinkedIn for someone with no email) and
- * created one lemlist campaign per distinct bucket. That fragmented a single
- * six-lead campaign into four lemlist campaigns — correct in isolation, but not
- * what a "push to lemlist" button should do: the user wants one campaign that
- * mirrors the one they built here.
+ * ── One campaign, every reachable channel at every touch ──────────────────
+ * Each touch (stepOrder) can fan out into MULTIPLE lemlist steps — one per
+ * distinct channel any lead actually resolved to at that position. A prospect
+ * with no email but a LinkedIn URL gets the LinkedIn step at that touch; a
+ * prospect with both gets BOTH (explicit product choice: maximize reach over
+ * avoiding duplicate contact — see plan-overview.md). A step simply never
+ * fires for a lead missing the field it needs — that is lemlist's own
+ * behaviour with a mixed contact list, not something this planner enforces.
  *
- * The fix is to stop trying to make the lemlist step type match each lead's
- * resolved channel, and instead build steps from the campaign's CONFIGURED
- * `sequence` — the same one channel-per-step the Sequence builder UI already
- * commits to for every lead. A lead who lacks the field a step needs (no email
- * for an email step, no LinkedIn URL for a linkedinSend step) simply never
- * receives that particular touch — lemlist requires the field to send, so the
- * step silently no-ops for that lead, the same way it would for any real
- * lemlist campaign built by hand with a mixed contact list. That is a property
- * of lemlist itself, not a gap in this planner.
+ * The channel at each touch is NOT read from `list.sequence[i].channel`
+ * (that only decides touch COUNT and delay). It is read from what
+ * campaignExecutor actually resolved for each lead — the per-prospect
+ * fallback in generateSequenceForProspect already picked email-if-available,
+ * LinkedIn otherwise, per lead; this planner's job is only to build a lemlist
+ * step for every distinct answer that shows up.
+ *
+ * ── Two encodings of the same generated text ───────────────────────────────
+ * The same touch can be sent by both an email step (HTML) and a LinkedIn/manual
+ * step (plain text) to a dual-reachable lead. lemlist substitutes a custom
+ * variable as a literal string with no per-step re-encoding, so one flat
+ * `stepNMessage` cannot serve both correctly — HTML entities and <br> tags
+ * would appear as literal text in a LinkedIn DM, and a raw "\n\n" collapses to
+ * nothing in an email (see the bug this fixed). Every message value is
+ * therefore emitted TWICE: `stepNMessage` (HTML, for an email step) and
+ * `stepNMessageText` (plain, for LinkedIn/manual) — same source text, two
+ * encodings, so each step template reads whichever is correct for it.
  */
 
 // lemlist step types we can target. x/telegram have no sendable equivalent, so
@@ -37,6 +45,10 @@ const CHANNEL_TO_STEP = {
 };
 
 const CHANNEL_LABEL = { email: 'Email', linkedin: 'LinkedIn', x: 'X', telegram: 'Telegram' };
+
+// Deterministic ordering for the sub-steps at one touch, so a rebuild of the
+// same data always produces the same lemlist sequence.
+const CHANNEL_PRIORITY = ['email', 'linkedin', 'x', 'telegram'];
 
 const DEFAULT_SEQUENCE = [{ stepOrder: 1, channel: 'email', delayDays: 0 }];
 
@@ -78,46 +90,76 @@ const toEmailHtml = (text) =>
 const normalizePlainText = (text) => text.replace(/\r\n/g, '\n');
 
 /**
- * Sequence steps, sorted and densely renumbered, with a valid channel
- * substituted for any legacy/unknown one. The single source both `stepsFor`
- * and `leadBodyFor` read from, so "which channel is step 2" can never disagree
- * between the step's own type and how its message variable gets formatted.
+ * The channel(s) actually resolved by any lead at each touch, in campaign
+ * order. `sequence` still supplies the touch COUNT and each touch's delay —
+ * campaignExecutor always writes exactly one message per configured stepOrder
+ * per lead — but the CHANNEL at each position comes from what leads really
+ * have, not from `sequence[i].channel`.
+ *
+ * @returns {Array<{ stepOrder: Number, delayDays: Number, channels: Array<String> }>}
  */
-const orderedChannelsFor = (sequence) =>
-  [...sequence]
+const touchesFor = (sequence, leads) => {
+  const bySignature = new Map(); // stepOrder -> Set<channel>
+  for (const lead of leads) {
+    for (const message of lead.messages || []) {
+      if (!message?.channel) continue;
+      if (!CHANNEL_TO_STEP[message.channel]) continue; // defensive: only the 4 known channels are ever produced
+      if (!bySignature.has(message.stepOrder)) bySignature.set(message.stepOrder, new Set());
+      bySignature.get(message.stepOrder).add(message.channel);
+    }
+  }
+
+  return [...sequence]
     .sort((a, b) => a.stepOrder - b.stepOrder)
-    .map((s) => (CHANNEL_TO_STEP[s.channel] ? s.channel : 'email'));
+    .map((configured) => ({
+      stepOrder: configured.stepOrder,
+      delayDays: Number(configured.delayDays ?? 0),
+      channels: [...(bySignature.get(configured.stepOrder) || [])]
+        .sort((a, b) => CHANNEL_PRIORITY.indexOf(a) - CHANNEL_PRIORITY.indexOf(b)),
+    }))
+    .filter((touch) => touch.channels.length > 0); // nobody resolved a channel here — no lemlist step to build
+};
 
 /**
- * Build the lemlist steps for the campaign's configured sequence.
+ * Build the lemlist steps: one per (touch, channel) pair. Sub-steps at the
+ * same touch share that touch's delay pattern — the FIRST sub-step carries the
+ * configured delay, later ones at the same touch get delay 0 so they fire the
+ * same day, as parallel attempts at one logical touch rather than a longer
+ * sequence.
  *
  * Message text is NOT baked in here. Each step is a generic template
- * ({{step1Subject}} / {{step1Message}}) and the personalised copy rides on each
- * lead as a custom variable — lemlist's documented behaviour for unknown keys,
- * and the only way one step can serve many leads whose generated copy varies.
+ * referencing `{{stepNSubject}}` / `{{stepNMessage}}` (email) or
+ * `{{stepNMessageText}}` (LinkedIn/manual) — the personalised copy rides on
+ * each lead as a custom variable, since one step serves every lead under it.
  */
-const stepsFor = (orderedChannels, sequence) =>
-  orderedChannels.map((channel, i) => {
-    const order = i + 1; // renumbered densely — a gap in stepOrder must not become a gap in lemlist's sequence
-    const configured = [...sequence].sort((a, b) => a.stepOrder - b.stepOrder)[i];
-    const step = {
-      type: CHANNEL_TO_STEP[channel].type,
-      index: order,
-      delay: Number(configured?.delayDays ?? 0),
-    };
+const stepsFor = (touches) => {
+  const steps = [];
+  let index = 0;
+  for (const touch of touches) {
+    touch.channels.forEach((channel, subIndex) => {
+      index += 1;
+      const order = touch.stepOrder;
+      const step = {
+        type: CHANNEL_TO_STEP[channel].type,
+        index,
+        delay: subIndex === 0 ? touch.delayDays : 0,
+      };
 
-    if (channel === 'email') {
-      step.subject = `{{step${order}Subject}}`;
-      step.message = `<p>{{step${order}Message}}</p>`;
-    } else if (channel === 'linkedin') {
-      step.message = `{{step${order}Message}}`;
-    } else {
-      // `manual` requires a title — it is what the user sees in their task list.
-      step.title = `Send ${CHANNEL_LABEL[channel]} message (step ${order})`;
-      step.message = `{{step${order}Message}}`;
-    }
-    return step;
-  });
+      if (channel === 'email') {
+        step.subject = `{{step${order}Subject}}`;
+        step.message = `<p>{{step${order}Message}}</p>`;
+      } else if (channel === 'linkedin') {
+        step.message = `{{step${order}MessageText}}`;
+      } else {
+        // `manual` requires a title — it is what the user sees in their task list.
+        step.title = `Send ${CHANNEL_LABEL[channel]} message (step ${order})`;
+        step.message = `{{step${order}MessageText}}`;
+      }
+      steps.push(step);
+    });
+  }
+  return steps;
+};
 
 const STEP_MESSAGE_KEY = /^step(\d+)Message$/;
 
@@ -127,23 +169,21 @@ const STEP_MESSAGE_KEY = /^step(\d+)Message$/;
  * rather than sent as "", so a missing variable fails loudly in lemlist's
  * preview instead of rendering an invisible blank.
  *
- * Each `stepNMessage` is formatted for the channel step N actually is in this
- * campaign — HTML for an email step, plain text otherwise — because the same
- * generated text is reused verbatim as a lemlist custom variable, and lemlist
- * does a literal string substitution with no markdown or newline handling of
- * its own.
+ * Every `stepNMessage` is emitted in BOTH encodings — see the file header for
+ * why one flat variable cannot serve both an email step and a LinkedIn/manual
+ * step sharing the same touch.
  */
-const leadBodyFor = (lead, orderedChannels) => {
+const leadBodyFor = (lead) => {
   const body = {};
   for (const [key, value] of Object.entries(lead)) {
     if (INTERNAL_KEYS.has(key)) continue;
     if (value === null || value === undefined) continue;
     if (isBlank(value)) continue;
 
-    const stepMatch = STEP_MESSAGE_KEY.exec(key);
-    if (stepMatch) {
-      const channel = orderedChannels[Number(stepMatch[1]) - 1];
-      body[key] = channel === 'email' ? toEmailHtml(String(value)) : normalizePlainText(String(value));
+    if (STEP_MESSAGE_KEY.test(key)) {
+      const text = String(value);
+      body[key] = toEmailHtml(text);              // stepNMessage — for an email step
+      body[`${key}Text`] = normalizePlainText(text); // stepNMessageText — for LinkedIn/manual
       continue;
     }
 
@@ -156,11 +196,10 @@ const leadBodyFor = (lead, orderedChannels) => {
  * Why a lead cannot be pushed. Returned rather than thrown: one unreachable
  * prospect must not sink the other 499.
  *
- * @param {Array<String>} neededFields  The contact field each configured step
- *   would need to ever fire (e.g. ['email','linkedinUrl']) — a lead missing
- *   all of them can never receive a single step, so pushing them is pointless.
- *   A lead missing only SOME of them is still pushed: the steps it can't
- *   satisfy simply won't send for it, same as any real mixed-contact list.
+ * @param {Array<String>} neededFields  The contact field ANY step in the built
+ *   sequence would need (e.g. ['email','linkedinUrl']) — a lead missing all of
+ *   them can never receive a single step. A lead missing only some is still
+ *   pushed: the steps it can't satisfy simply won't fire for it.
  */
 const refusalFor = (lead, neededFields) => {
   if (lead.status === 'skipped') return lead.skipReason || 'Skipped during generation';
@@ -178,11 +217,9 @@ const refusalFor = (lead, neededFields) => {
  */
 export const buildPushPlan = (list, leads = []) => {
   const sequence = list?.sequence?.length ? list.sequence : DEFAULT_SEQUENCE;
-  const orderedChannels = orderedChannelsFor(sequence);
+  const touches = touchesFor(sequence, leads);
   const neededFields = [...new Set(
-    sequence
-      .map((s) => CHANNEL_TO_STEP[s.channel]?.needs)
-      .filter(Boolean)
+    touches.flatMap((touch) => touch.channels.map((c) => CHANNEL_TO_STEP[c].needs))
   )];
 
   const skipped = [];
@@ -198,14 +235,18 @@ export const buildPushPlan = (list, leads = []) => {
       });
       continue;
     }
-    pushableLeads.push(leadBodyFor(lead, orderedChannels));
+    pushableLeads.push(leadBodyFor(lead));
   }
 
+  // touches.length === 0 only when no lead resolved any channel anywhere, which
+  // independently means every lead's `messages` was empty and refusalFor
+  // already refused all of them above — so pushableLeads is empty here too.
+  // No separate branch needed.
   const campaigns = pushableLeads.length
     ? [{
         signature: 'all', // one campaign, always — kept for the executor/service's per-campaign bookkeeping
         name: String(list?.name || 'Campaign').trim().slice(0, 140),
-        steps: stepsFor(orderedChannels, sequence),
+        steps: stepsFor(touches),
         leads: pushableLeads,
       }]
     : [];
@@ -222,4 +263,6 @@ export const buildPushPlan = (list, leads = []) => {
   };
 };
 
-export const __testables = { stepsFor, leadBodyFor, refusalFor, orderedChannelsFor, toEmailHtml, escapeHtml };
+export const __testables = {
+  touchesFor, stepsFor, leadBodyFor, refusalFor, toEmailHtml, escapeHtml, normalizePlainText,
+};
