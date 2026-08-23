@@ -9,6 +9,7 @@ import PersonasSettings from '../components/settings/PersonasSettings';
 import PlaybooksSettings from '../components/settings/PlaybooksSettings';
 import SignalsSettings from '../components/settings/SignalsSettings';
 import ApiKeySettings from '../components/settings/ApiKeySettings';
+import LemlistSettings from '../components/settings/LemlistSettings';
 
 // Live Login streams a real browser over VNC-over-WebSocket, bridged by
 // server/src/services/scraper/vncBridge.js at the same path/origin as the
@@ -489,6 +490,7 @@ export default function SettingsPage() {
       <PlaybooksSettings />
       <SignalsSettings />
       {canManageApiKey && <ApiKeySettings />}
+      {canManageApiKey && <LemlistSettings />}
     </div>
   );
 }

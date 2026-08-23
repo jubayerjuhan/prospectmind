@@ -4,7 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
   Mail, Briefcase, AtSign, MessageCircle, Send, Plus, Trash2, Play, RefreshCw, Loader2,
-  AlertTriangle, Sparkles, Save, Copy, ChevronDown, ChevronUp, Clock, Download,
+  AlertTriangle, Sparkles, Save, Copy, ChevronDown, ChevronUp, Clock, Download, Rocket, ExternalLink,
+  CheckCircle2,
 } from 'lucide-react';
 import api from '../../lib/api';
 
@@ -21,6 +22,21 @@ const STATUS_BADGE = {
   idle: 'bg-slate-800 text-slate-400',
   generating: 'bg-indigo-500/15 text-indigo-300',
   ready: 'bg-emerald-500/15 text-emerald-300',
+  failed: 'bg-red-500/15 text-red-300',
+};
+
+const PUSH_STATUS_BADGE = {
+  idle: 'bg-slate-800 text-slate-400',
+  pushing: 'bg-indigo-500/15 text-indigo-300',
+  done: 'bg-emerald-500/15 text-emerald-300',
+  partial: 'bg-amber-500/15 text-amber-300',
+  failed: 'bg-red-500/15 text-red-300',
+};
+
+const CAMPAIGN_STATUS_BADGE = {
+  pending: 'bg-slate-800 text-slate-400',
+  complete: 'bg-emerald-500/15 text-emerald-300',
+  partial: 'bg-amber-500/15 text-amber-300',
   failed: 'bg-red-500/15 text-red-300',
 };
 
@@ -129,6 +145,54 @@ export default function CampaignOutreachTab({ campaign }) {
   const generated = results.filter((r) => r.status === 'generated');
   const skipped = results.filter((r) => r.status === 'skipped');
 
+  // Same queryKey LemlistSettings.jsx uses on the Settings page, so whichever
+  // loads first warms the cache for the other.
+  const lemlistStatusQuery = useQuery({
+    queryKey: ['organization-lemlist'],
+    queryFn: () => api.get('/organization/lemlist').then((r) => r.data.data),
+    staleTime: 30_000,
+  });
+
+  const pushQuery = useQuery({
+    queryKey: ['lemlist-push', campaign._id],
+    queryFn: () => api.get(`/prospect-lists/${campaign._id}/lemlist-push`).then((r) => r.data.data),
+    refetchInterval: (q) => (q.state.data?.status === 'pushing' ? 2000 : false),
+  });
+
+  const push = pushQuery.data;
+  const isPushing = push?.status === 'pushing';
+
+  // What a push WOULD do — reachability against the CURRENT saved sequence —
+  // fetched before any commitment. lemlist has no delete-campaign endpoint, so
+  // "2 leads aren't reachable on this sequence" needs to be visible before the
+  // click, not discovered after in the "not pushed" list of a campaign that
+  // now exists permanently. Re-fetched whenever the sequence is saved or
+  // outreach is regenerated (see the invalidations below).
+  const previewQuery = useQuery({
+    // lastGeneratedAt rides in the key so a completed regeneration refetches
+    // the preview automatically, without a manual invalidation racing the
+    // still-in-progress write it would otherwise catch mid-generation.
+    queryKey: ['lemlist-push-preview', campaign._id, outreach?.lastGeneratedAt],
+    queryFn: () => api.get(`/prospect-lists/${campaign._id}/lemlist-push/preview`).then((r) => r.data.data),
+    enabled: generated.length > 0 && !isGenerating,
+  });
+  const preview = previewQuery.data;
+
+  const pushMutation = useMutation({
+    mutationFn: () =>
+      api.post(`/prospect-lists/${campaign._id}/lemlist-push`, {
+        // lemlist defaults a campaign's schedule to Europe/Paris if this is
+        // omitted; sending the browser's zone means send-window hours line up
+        // with the person actually running the campaign.
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      }),
+    onSuccess: () => {
+      toast.success('Pushing to lemlist — campaigns are created as drafts, nothing sends yet.');
+      queryClient.invalidateQueries({ queryKey: ['lemlist-push', campaign._id] });
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'Could not start the push'),
+  });
+
   // Playbooks selected for this campaign, else everything the org has.
   const campaignPlaybooks = campaign.playbooks?.length
     ? playbooks.filter((p) => campaign.playbooks.includes(p._id))
@@ -140,6 +204,9 @@ export default function CampaignOutreachTab({ campaign }) {
       toast.success('Sequence saved');
       queryClient.invalidateQueries({ queryKey: ['prospect-list', campaign._id] });
       queryClient.invalidateQueries({ queryKey: ['prospect-lists'] });
+      // The push preview's reachability is computed against the saved
+      // sequence — a step added or removed here changes who is reachable.
+      queryClient.invalidateQueries({ queryKey: ['lemlist-push-preview', campaign._id] });
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to save sequence'),
   });
@@ -355,6 +422,153 @@ export default function CampaignOutreachTab({ campaign }) {
         {outreach?.status === 'failed' && outreach.error && (
           <div className="mt-3 flex items-start gap-2 rounded-xl border border-red-900/50 bg-red-950/30 p-3 text-sm text-red-300">
             <AlertTriangle size={15} className="mt-0.5 shrink-0" /> {outreach.error}
+          </div>
+        )}
+      </section>
+
+      {/* Push to lemlist */}
+      <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-800 pb-4">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-500/10">
+              <Rocket size={15} className="text-indigo-400" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-white">Push to lemlist</h3>
+              <p className="mt-1 max-w-2xl text-xs leading-relaxed text-slate-500">
+                Creates one lemlist campaign matching this list's sequence exactly, with every prospect's
+                generated messages carried over as lead variables. A prospect who can't receive a given step
+                (no email on file for an email step, say) simply won't get that touch. Created as a draft;
+                nothing sends until you start it inside lemlist.
+              </p>
+            </div>
+          </div>
+
+          {lemlistStatusQuery.data?.connected ? (
+            <button
+              type="button"
+              onClick={() => pushMutation.mutate()}
+              disabled={generated.length === 0 || isPushing || pushMutation.isPending}
+              className="flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-medium text-white shadow-lg shadow-indigo-950/50 transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {isPushing || pushMutation.isPending ? (
+                <Loader2 size={15} className="animate-spin" />
+              ) : (
+                <Rocket size={15} />
+              )}
+              {isPushing ? 'Pushing…' : push?.campaigns?.length ? 'Push again' : 'Push to lemlist'}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => navigate('/settings')}
+              className="flex items-center gap-2 rounded-xl border border-slate-700 px-4 py-2.5 text-sm text-slate-300 transition hover:border-indigo-500/50 hover:text-indigo-300"
+            >
+              <ExternalLink size={14} /> Connect lemlist in Settings
+            </button>
+          )}
+        </div>
+
+        {generated.length === 0 && (
+          <p className="mt-4 text-xs text-slate-600">Generate outreach above before pushing to lemlist.</p>
+        )}
+
+        {/* Reachability preview — computed against the current sequence, before any commitment.
+            lemlist has no delete-campaign endpoint, so this needs to be visible before the click. */}
+        {preview && (
+          <div className="mt-4">
+            {preview.totals.skipped === 0 ? (
+              <p className="flex items-center gap-2 text-xs text-emerald-400">
+                <CheckCircle2 size={13} />
+                All {preview.totals.pushable} generated sequence{preview.totals.pushable === 1 ? '' : 's'} are
+                reachable on this sequence ({sequence.map((s) => channelMeta(s.channel).label).join(' → ')}).
+              </p>
+            ) : (
+              <div className="rounded-xl border border-amber-900/50 bg-amber-950/20 p-3">
+                <p className="flex items-start gap-2 text-xs text-amber-300">
+                  <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+                  <span>
+                    {preview.totals.pushable} of {preview.totals.pushable + preview.totals.skipped} generated
+                    sequences are reachable on this sequence (
+                    {sequence.map((s) => channelMeta(s.channel).label).join(' → ')}). {preview.totals.skipped}{' '}
+                    won't be pushed — add a matching step above, or push anyway and leave them out.
+                  </span>
+                </p>
+                <div className="mt-2 space-y-1 border-t border-amber-900/40 pt-2">
+                  {preview.skipped.map((s, i) => (
+                    <p key={s.prospectId || i} className="text-[11px] text-amber-400/80">
+                      <span className="text-amber-300">{s.name || s.prospectId}</span> — {s.reason}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {push && push.status !== 'idle' && (
+          <div className="mt-4 space-y-3">
+            <div className="flex flex-wrap items-center gap-3 text-xs">
+              <span className={`rounded-full px-2.5 py-1 font-medium ${PUSH_STATUS_BADGE[push.status] || PUSH_STATUS_BADGE.idle}`}>
+                {push.status === 'pushing' ? 'pushing…' : push.status}
+              </span>
+              {push.totals && (
+                <span className="text-slate-500">
+                  {push.totals.leadsPushed ?? 0}/{push.totals.pushable ?? 0} leads pushed into{' '}
+                  {push.campaigns?.length || 0} campaign{push.campaigns?.length === 1 ? '' : 's'}
+                </span>
+              )}
+              {push.lastPushedAt && (
+                <span className="text-slate-600">last run {new Date(push.lastPushedAt).toLocaleString()}</span>
+              )}
+            </div>
+
+            {push.error && (
+              <div className="flex items-start gap-2 rounded-xl border border-red-900/50 bg-red-950/30 p-3 text-sm text-red-300">
+                <AlertTriangle size={15} className="mt-0.5 shrink-0" /> {push.error}
+              </div>
+            )}
+
+            {push.campaigns?.length > 0 && (
+              <div className="space-y-2">
+                {push.campaigns.map((c) => (
+                  <div
+                    key={c.signature}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-800 bg-slate-950/50 px-4 py-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-slate-200">{c.name}</p>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {c.leadsPushed ?? 0}/{c.leadCount ?? 0} leads
+                        {c.leadFailures?.length > 0 && (
+                          <span className="text-amber-400"> · {c.leadFailures.length} failed</span>
+                        )}
+                      </p>
+                    </div>
+                    <span
+                      className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                        CAMPAIGN_STATUS_BADGE[c.status] || CAMPAIGN_STATUS_BADGE.pending
+                      }`}
+                    >
+                      {c.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {push.skipped?.length > 0 && (
+              <div>
+                <p className="mb-1.5 text-xs font-medium text-slate-500">Not pushed ({push.skipped.length})</p>
+                <div className="space-y-1">
+                  {push.skipped.map((s, i) => (
+                    <p key={s.prospectId || i} className="text-xs text-slate-600">
+                      <span className="text-slate-500">{s.name || s.prospectId}</span> — {s.reason}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </section>

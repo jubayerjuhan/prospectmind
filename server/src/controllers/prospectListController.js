@@ -12,6 +12,7 @@ import { buildOutreachLeads, outreachCsvColumns } from '../services/campaign/out
 import { ensureCompanyLink } from '../services/company/companyResolver.js';
 import { previewSpeakerImport } from '../services/scraper/speakerImportService.js';
 import { executeCampaignOutreach } from '../services/campaign/campaignExecutor.js';
+import { executeLemlistPush, previewLemlistPush } from '../services/campaign/lemlistPushService.js';
 
 // pipelinePaused rides along because the table has to tell "paused" apart from
 // "pausing" — a run that is flagged but still finishing its current layer.
@@ -1081,6 +1082,82 @@ export const getCampaignOutreachLeads = async (req, res) => {
       count: payload.length,
       leads: payload,
     });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// GET /api/prospect-lists/:id/lemlist-push/preview
+//
+// What a push WOULD do — reachability against the campaign's current sequence
+// — without touching lemlist. lemlist has no delete-campaign endpoint, so
+// "2 leads aren't reachable on this sequence" is worth surfacing before the
+// click, not discovered afterward in the push result of a campaign that
+// already exists and can't be undone.
+export const getLemlistPushPreview = async (req, res) => {
+  try {
+    const preview = await previewLemlistPush(req.params.id, req.organization._id);
+    res.json({ success: true, data: preview });
+  } catch (error) {
+    res.status(404).json({ success: false, message: error.message });
+  }
+};
+
+// POST /api/prospect-lists/:id/lemlist-push
+//
+// Kicks off pushing this campaign's generated outreach into lemlist as one
+// lemlist campaign matching the configured sequence. Fire-and-forget, same
+// shape as generateCampaignOutreach — the frontend polls the GET below for
+// progress.
+//
+// lemlist has no delete-campaign endpoint, so a second click while a push is
+// already running (or already done) is refused rather than silently creating
+// a duplicate campaign nobody can remove.
+export const startLemlistPush = async (req, res) => {
+  try {
+    const list = await ProspectList.findOne({
+      _id: req.params.id,
+      organization: req.organization._id,
+      isArchived: false,
+    }).select('_id lemlistPush.status');
+
+    if (!list) {
+      return res.status(404).json({ success: false, message: 'Campaign not found.' });
+    }
+    if (list.lemlistPush?.status === 'pushing') {
+      return res.status(400).json({ success: false, message: 'A push to lemlist is already running for this campaign.' });
+    }
+
+    const { autoReview, timezone } = req.body || {};
+
+    executeLemlistPush(list._id, req.organization._id, {
+      autoReview: autoReview === true, // explicit opt-in only; undefined/anything else stays false
+      timezone: typeof timezone === 'string' && timezone.trim() ? timezone.trim() : undefined,
+    }).catch((err) => console.error(`[lemlist-push] Push error for ${list._id}:`, err.message));
+
+    res.json({ success: true, message: 'Push to lemlist started.', status: 'pushing' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// GET /api/prospect-lists/:id/lemlist-push
+//
+// Poll target for the push started above — one or more lemlist campaign
+// records with per-campaign lead counts, failures, and the overall totals.
+export const getLemlistPushStatus = async (req, res) => {
+  try {
+    const list = await ProspectList.findOne({
+      _id: req.params.id,
+      organization: req.organization._id,
+      isArchived: false,
+    }).select('lemlistPush').lean();
+
+    if (!list) {
+      return res.status(404).json({ success: false, message: 'Campaign not found.' });
+    }
+
+    res.json({ success: true, data: list.lemlistPush || { status: 'idle' } });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

@@ -58,6 +58,9 @@ A `ProspectList` **is** a campaign (v2 Phase D). It carries membership, strategy
 | POST | `/prospect-lists/:id/outreach/generate` | Build per-prospect sequences from **stored knowledge only** (skips non-ready prospects) |
 | GET | `/prospect-lists/:id/outreach/export` | Generated sequences as CSV — one row per prospect, contacts + each step's message in its own columns |
 | GET | `/prospect-lists/:id/outreach/leads` | Same data as JSON, for external tools (lemlist). **Accepts an organization API key** via `x-api-key`, or a normal session. `?includeSkipped=true` to include skipped prospects |
+| GET | `/prospect-lists/:id/lemlist-push/preview` | Reachability preview — what a push would do against the campaign's current sequence, without calling lemlist or writing anything. `{ totals, skipped, campaignName, stepCount }` |
+| POST | `/prospect-lists/:id/lemlist-push` | Push generated outreach into lemlist as **one** lemlist campaign matching the configured sequence (see `lemlistPush.js`). Fire-and-forget; requires `organization.integrations.lemlist` connected. Body `{ autoReview?, timezone? }`, `autoReview` defaults `false`. Refused with 400 while a push is already running |
+| GET | `/prospect-lists/:id/lemlist-push` | Poll target for the push above — the campaign's lemlist id, lead count, failures, and totals |
 | POST | `/prospect-lists/:id/start` | Start every `not-started` prospect in the campaign (blocked by the campaign-goal gate) |
 | POST | `/prospect-lists/:id/pause` · `/resume` | Pause/resume campaign processing. Pause reports `stoppedImmediately` vs `stillFinishing` |
 
@@ -234,6 +237,9 @@ and they get injected verbatim into outreach.
 | GET | `/organization/api-key` | 🔒 owner/admin | Metadata only — `{ exists, last4, createdAt, lastUsedAt }`. The key itself is unrecoverable |
 | POST | `/organization/api-key` | 🔒 owner/admin | Create or rotate. **Returns the plaintext key once**; rotating invalidates the previous one immediately |
 | DELETE | `/organization/api-key` | 🔒 owner/admin | Revoke without issuing a replacement |
+| GET | `/organization/lemlist` | 🔒 owner/admin | Connection metadata only — `{ connected, last4, connectedAt, lastVerifiedAt }`. The key itself is never returned |
+| POST | `/organization/lemlist` | 🔒 owner/admin | Connect or replace the org's lemlist key. Body `{ apiKey }`. **Verified against lemlist's `/team` before it is stored** — a bad key is rejected (400), not saved |
+| DELETE | `/organization/lemlist` | 🔒 owner/admin | Disconnect. Existing lemlist campaigns already pushed are untouched — lemlist has no delete-campaign endpoint |
 
 > The LinkedIn session is a **single shared platform-level document**, not per-org — the one deliberate exception to org scoping.
 

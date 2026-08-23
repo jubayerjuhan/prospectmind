@@ -40,6 +40,26 @@ const organizationSchema = new mongoose.Schema(
       lastUsedAt: Date,       // the cheapest way to answer "is the integration live?"
     },
 
+    // ── Third-party integration credentials ──────────────────────────────────
+    // Outbound counterpart to `apiKey` above, and stored the opposite way on
+    // purpose: `apiKey` is a key WE issue and only ever compare, so a hash is
+    // enough. A lemlist key is a key THEY issue and we must replay verbatim on
+    // every call, so it has to survive as plaintext. Per-org, opt-in, and null
+    // for the vast majority of orgs that never connect anything.
+    //
+    // NOTE: plaintext at rest. Encrypting these with a KMS-held key is the
+    // right end state; deferred deliberately so the first integration could
+    // ship. Treat this subtree as secret in logs, exports, and API responses.
+    integrations: {
+      lemlist: {
+        apiKey: { type: String, select: false }, // never returned unless asked for
+        last4: String,                           // safe to show in settings UI
+        connectedAt: Date,
+        connectedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        lastVerifiedAt: Date,                    // last successful call to lemlist
+      },
+    },
+
     // Settings
     settings: {
       defaultEcosystem: { type: String, default: 'web3' }, // web3 | web2 | any

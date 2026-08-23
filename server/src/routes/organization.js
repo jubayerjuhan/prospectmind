@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { protect, requireRole } from '../middleware/auth.js';
 import Organization from '../models/Organization.js';
 import { generateApiKey } from '../services/apiKey.js';
+import { createLemlistClient, LemlistError } from '../services/campaign/lemlistClient.js';
 import LinkedInSession from '../models/LinkedInSession.js';
 import { refreshLinkedInSessionFromCookie } from '../services/scraper/linkedinScraper.js';
 import * as linkedinLiveLogin from '../services/scraper/linkedinLiveLogin.js';
@@ -201,6 +202,85 @@ router.delete('/api-key', requireRole('owner', 'admin'), async (req, res) => {
   try {
     await Organization.findByIdAndUpdate(req.organization._id, { $unset: { apiKey: '' } });
     res.json({ success: true, message: 'API key revoked.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ── lemlist (outbound: a key THEY issue, so we can push into their account) ──
+// Opposite direction and opposite storage from `apiKey` above — see the
+// comment on Organization.integrations.lemlist for why this one is plaintext.
+
+// GET /api/organization/lemlist — connection metadata only; never the key itself.
+router.get('/lemlist', requireRole('owner', 'admin'), async (req, res) => {
+  try {
+    const org = await Organization.findById(req.organization._id).select('integrations.lemlist').lean();
+    const lemlist = org?.integrations?.lemlist;
+    res.json({
+      success: true,
+      data: lemlist?.last4
+        ? {
+            connected: true,
+            last4: lemlist.last4,
+            connectedAt: lemlist.connectedAt,
+            lastVerifiedAt: lemlist.lastVerifiedAt || null,
+          }
+        : { connected: false },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// POST /api/organization/lemlist — connect or replace the key.
+//
+// Verified against lemlist's own API before it is stored, so a typo'd or
+// already-revoked key never sits in the database looking connected. The key
+// itself is never echoed back — the caller already has it, they just typed it.
+router.post('/lemlist', requireRole('owner', 'admin'), async (req, res) => {
+  try {
+    const apiKey = String(req.body?.apiKey || '').trim();
+    if (!apiKey) {
+      return res.status(400).json({ success: false, message: 'apiKey is required.' });
+    }
+
+    let team;
+    try {
+      team = await createLemlistClient(apiKey).getTeam();
+    } catch (error) {
+      const status = error instanceof LemlistError && error.status && error.status < 500 ? 400 : 502;
+      return res.status(status).json({
+        success: false,
+        message: status === 400 ? 'lemlist rejected this key. Check it and try again.' : 'Could not reach lemlist to verify the key — try again shortly.',
+      });
+    }
+
+    const now = new Date();
+    await Organization.findByIdAndUpdate(req.organization._id, {
+      $set: {
+        'integrations.lemlist.apiKey': apiKey,
+        'integrations.lemlist.last4': apiKey.slice(-4),
+        'integrations.lemlist.connectedAt': now,
+        'integrations.lemlist.connectedBy': req.user._id,
+        'integrations.lemlist.lastVerifiedAt': now,
+      },
+    });
+
+    res.json({
+      success: true,
+      data: { connected: true, last4: apiKey.slice(-4), teamName: team?.name || null },
+      message: 'lemlist connected.',
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// DELETE /api/organization/lemlist — disconnect without issuing a replacement.
+router.delete('/lemlist', requireRole('owner', 'admin'), async (req, res) => {
+  try {
+    await Organization.findByIdAndUpdate(req.organization._id, { $unset: { 'integrations.lemlist': '' } });
+    res.json({ success: true, message: 'lemlist disconnected.' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

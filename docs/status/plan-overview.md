@@ -3,7 +3,7 @@
 > **Single source of truth** for what's built, what's in flight, and what's next.
 > Replaces the former `current.md`, `todos.md`, and `roadmap.md` (consolidated 2026-08-08 — they had drifted out of sync with each other and with the code).
 >
-> **Last verified against the codebase:** 2026-08-24 (pipeline activity log)
+> **Last verified against the codebase:** 2026-08-24 (lemlist push: one-campaign redesign, message formatting, reachability preview)
 > Architecture detail for the v2 redesign lives in [`redesign-v2.md`](redesign-v2.md).
 
 ---
@@ -57,7 +57,93 @@ These shipped after the v2 phases and were never in the roadmap:
 
 ## 🔄 In flight (uncommitted working tree)
 
-Nothing. The dead-LinkedIn-session UX that sat here shipped in `7c17464`
+**Push a campaign into lemlist (shipped: planner, executor, client, service,
+routes, settings connector, and the button).**
+
+One ProspectMind campaign → **one** lemlist campaign. Steps are built from the
+campaign's own CONFIGURED `sequence` (`services/campaign/lemlistPush.js`,
+pure) — not from whatever channel `campaignExecutor`'s per-prospect fallback
+picked for a given lead. A prospect who can't satisfy a step (no email for an
+email step) is still pushed; that step just never fires for them in lemlist,
+the same way it wouldn't for any real campaign with a mixed contact list.
+
+An earlier version bucketed leads by their per-prospect resolved channel and
+created one lemlist campaign per bucket — `Demo Campaign 2` fanned out into 4
+campaigns from 6 leads. Corrected after the user pushed back explicitly:
+"I want everything under one campaign." The per-bucket version is gone.
+
+**Formatting is channel-aware.** A real push surfaced a second bug: generated
+copy's `\n\n` paragraph breaks were vanishing in lemlist's own preview
+("Hi Jubayer,I was impressed…" instead of two paragraphs), because lemlist
+substitutes `{{step1Message}}` as a literal string into
+`<p>{{step1Message}}</p>` with no newline handling of its own. Fixed per
+channel: an email-configured step's message is escaped and blank-line breaks
+become `</p><p>`, single newlines become `<br>`; a LinkedIn/manual
+(X/Telegram) step's message is left as plain text — escaping would show a
+recipient literal `&amp;` instead of `&`. Which transform applies is decided
+by what the CAMPAIGN's step is, never by what channel the individual lead's
+copy was originally written for.
+
+**A reachability preview runs before every push.** `GET
+/prospect-lists/:id/lemlist-push/preview` (`previewLemlistPush` in
+`lemlistPushService.js`) computes the exact same plan `buildPushPlan` would,
+without calling lemlist or writing anything — so "2 of 6 aren't reachable
+on this sequence" is visible on the outreach tab before the click, not
+discovered after in the result of a campaign that now exists and can't be
+deleted. Added after a real case: `Demo Campaign 2` configured
+email→telegram→email→x has no LinkedIn step at all, so two prospects who
+only had a LinkedIn URL were silently unreachable — correct behavior, but
+invisible until the preview surfaced it as "not reachable on any configured
+channel." The frontend refetches it automatically when generation completes
+(keyed on `outreach.lastGeneratedAt`) and when the sequence is saved.
+
+Live-fired for real against the connected Fanzio lemlist account (with the
+user's explicit go-ahead) and verified against lemlist's own API afterward,
+not just the local DB record — both before and after the one-campaign fix.
+
+Routes: `GET .../lemlist-push/preview`, `POST/GET .../lemlist-push`
+(fire-and-forget + poll, same shape as `outreach/generate`), and
+`GET/POST/DELETE /organization/lemlist`. Frontend: `LemlistSettings.jsx`
+(mirrors `ApiKeySettings.jsx`) on the Settings page, and the "Push to lemlist"
+section on `CampaignOutreachTab.jsx` — reachability panel, push button,
+per-campaign progress card, all polling/refetching live.
+
+The design constraint, verified against the live lemlist API: `campaignExecutor`
+resolves a step's channel **per prospect** (the fallback in
+`generateSequenceForProspect`), while a lemlist step has one `type` for every
+lead under it, and lemlist's `conditional` step keys are behavioural, not
+"this lead has an email". A prospect reachable on none of the campaign's
+configured steps is refused with a reason (`buildPushPlan`'s `refusalFor`);
+one reachable on only some steps is still pushed.
+
+Also confirmed against the live API and worth not rediscovering:
+- There is **no delete-campaign endpoint**. A bad push is permanent — this
+  drove both the reachability preview above and the "unsafe delete is not
+  expressible" choice below.
+- `DELETE /campaigns/{id}/leads/{id}` **without `?action=remove` unsubscribes**
+  the lead and adds it to the team-wide suppression list.
+- `GET /export/leads` returns a header row only unless given `?state=all`.
+- Rate limit is 20 requests per 2 seconds per key, so the push must be a job.
+
+Deliberate choices worth keeping:
+- `autoReview` defaults **false**. A one-click button must not start emailing
+  real people before a human looks at the campaign.
+- The unsafe delete is **not expressible**: `removeLead` hard-codes
+  `?action=remove` rather than accepting it as an argument.
+- A failed step aborts that campaign's leads. A lead sitting in a half-built
+  sequence looks ready to send, which is worse than a lead never added.
+- Every lemlist id is reported before the work that might fail, so an
+  interrupted push cannot leave campaigns the caller never heard about — they
+  could never be deleted. `executePushPlan` hands a self-contained snapshot
+  (not a live reference) to `onProgress` on every event for exactly this
+  reason — a caught bug during testing: `{ ...record }` alone still shared the
+  `leadFailures`/`stepIds` ARRAYS across snapshots, so an early "campaign
+  created" snapshot would silently mutate later in the run.
+- A second `POST /lemlist-push` while one is already `pushing` is refused
+  (400) rather than queued — lemlist has no delete-campaign endpoint, so a
+  double-click must not be able to make duplicates.
+
+The dead-LinkedIn-session UX that previously sat here shipped in `7c17464`
 (`lastFailureAt`/`lastFailureContext` on `LinkedInSession`, `LinkedInSessionModal`,
 `DELETE /api/organization/linkedin-session`, the `linkedin:simulate-*` scripts,
 and the `CompanyDetailPage` rework).

@@ -19,6 +19,9 @@ import {
   generateCampaignOutreach,
   exportCampaignOutreach,
   getCampaignOutreachLeads,
+  startLemlistPush,
+  getLemlistPushStatus,
+  getLemlistPushPreview,
 } from '../controllers/prospectListController.js';
 
 const router = Router();
@@ -44,6 +47,9 @@ router.post('/:id/import-confirm', importProspectsConfirm);
 router.get('/:id/outreach', getCampaignOutreach);
 router.post('/:id/outreach/generate', generateCampaignOutreach);
 router.get('/:id/outreach/export', exportCampaignOutreach);
+router.get('/:id/lemlist-push/preview', getLemlistPushPreview);
+router.post('/:id/lemlist-push', startLemlistPush);
+router.get('/:id/lemlist-push', getLemlistPushStatus);
 router.post('/:id/start', startCampaign);
 router.post('/:id/pause', pauseCampaign);
 router.post('/:id/resume', resumeCampaign);

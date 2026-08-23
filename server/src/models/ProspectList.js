@@ -66,6 +66,49 @@ const outreachSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// One entry per channel-signature bucket buildPushPlan() produced — see
+// lemlistPush.js for why a list fans out into more than one lemlist campaign.
+const lemlistPushCampaignSchema = new mongoose.Schema(
+  {
+    signature: String,               // e.g. "email>linkedin" — identifies the bucket, not shown to the user
+    name: String,                    // the name it was created with in lemlist
+    lemlistCampaignId: String,       // null if creation itself failed
+    sequenceId: String,
+    leadsPushed: { type: Number, default: 0 },
+    leadCount: { type: Number, default: 0 }, // size of this bucket, known before the push starts
+    leadFailures: [{ email: String, name: String, error: String, _id: false }],
+    status: { type: String, enum: ['pending', 'complete', 'partial', 'failed'], default: 'pending' },
+    error: String,
+  },
+  { _id: false }
+);
+
+// Push-to-lemlist state for this campaign. Deliberately separate from
+// `outreach` above: generating a sequence and pushing it to lemlist are
+// different long-running operations with different failure modes, and
+// conflating their status fields would make one operation's "generating" mask
+// the other's "pushing" on the same poll.
+//
+// lemlist has no delete-campaign endpoint, so `campaigns` is kept across runs
+// rather than reset — it is the only record of what a "Push to lemlist" click
+// created, and the UI needs it to answer "did this already happen" before a
+// second click makes duplicates nobody can remove.
+const lemlistPushSchema = new mongoose.Schema(
+  {
+    status: { type: String, enum: ['idle', 'pushing', 'done', 'partial', 'failed'], default: 'idle' },
+    error: String,
+    startedAt: Date,
+    lastPushedAt: Date,
+    campaigns: { type: [lemlistPushCampaignSchema], default: [] },
+    skipped: [{ prospectId: String, name: String, reason: String, _id: false }], // refused by buildPushPlan, never sent
+    totals: {
+      leads: Number, pushable: Number, skipped: Number,
+      leadsPushed: Number, leadsFailed: Number,
+    },
+  },
+  { _id: false }
+);
+
 const prospectListSchema = new mongoose.Schema(
   {
     organization: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization', required: true, index: true },
@@ -91,6 +134,7 @@ const prospectListSchema = new mongoose.Schema(
       default: () => [{ stepOrder: 1, channel: 'email', delayDays: 0 }],
     },
     outreach: { type: outreachSchema, default: () => ({}) },
+    lemlistPush: { type: lemlistPushSchema, default: () => ({}) },
   },
   { timestamps: true }
 );

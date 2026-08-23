@@ -60,6 +60,9 @@ server/src/
 ├── models/
 │   ├── User.js               # email, password, org ref, role, refreshToken
 │   ├── Organization.js       # plan, usage, members, Stripe ids, settings
+│   │                         #   + apiKey: hash of the key WE issue (inbound pulls)
+│   │                         #   + integrations.lemlist: key THEY issue, plaintext because
+│   │                         #     it must be replayed on every outbound call (select:false)
 │   ├── Prospect.js           # raw input + enriched profile + personaScores + signals + messages
 │   │                         #   + scoringContext: snapshot of what Layer 4 scored against
 │   │                         #     (campaign, goalSource, ecosystem, personaNames), written
@@ -126,6 +129,13 @@ server/src/
     │   ├── sourceRegistry.js           # pluggable company sources
     │   └── sources/cryptojobslist.js
     ├── campaign/campaignExecutor.js
+    ├── campaign/lemlistPush.js         # buildPushPlan: groups leads into lemlist
+    │                                   #   campaigns by channel signature (pure, unit-tested)
+    ├── campaign/lemlistPushExecutor.js # executePushPlan: replays a plan, contains failure
+    ├── campaign/lemlistClient.js       # lemlist HTTP: basic auth, 20-req/2s pacing, 429
+    │                                   #   retry, and removeLead pinned to ?action=remove
+    └── campaign/lemlistPushService.js  # wires plan+execute+client to a real ProspectList,
+                                        #   persists progress for the poll endpoint below
     ├── cron/usageReset.js              # monthly usage reset (node-cron)
     ├── stripe/stripeService.js
     └── resend/emailService.js
