@@ -64,23 +64,30 @@ const escapeHtml = (text) => text.replace(/[&<>]/g, (ch) => HTML_ESCAPES[ch]);
 /**
  * Generated copy comes back as plain text with real "\n\n" paragraph breaks —
  * see SequenceCard in the frontend, which renders it with `whitespace-pre-line`
- * for exactly that reason. An HTML email cannot: a raw newline inside
- * `<p>{{step1Message}}</p>` is just whitespace to a renderer and collapses to
- * nothing, which is precisely what turned "Hi Jubayer,\n\nI was impressed…"
- * into "Hi Jubayer,I was impressed…" in a real lemlist preview — the paragraph
- * break vanished instead of becoming a line break.
+ * for exactly that reason. An HTML email cannot: a raw newline is just
+ * whitespace to a renderer, which is precisely what turned
+ * "Hi Jubayer,\n\nI was impressed…" into "Hi Jubayer,I was impressed…" in a
+ * real lemlist send — the paragraph break vanished instead of becoming a line
+ * break.
  *
- * Escaped first so a stray "&" or "<" in generated copy can't be interpreted as
- * markup, then blank-line-separated runs become paragraphs and single newlines
- * within a paragraph become <br>. The outer step template already wraps the
- * substituted value in one <p>…</p> (see stepsFor), so a value containing
- * "</p><p>" here closes and reopens that tag correctly rather than nesting.
+ * The value returned here is a COMPLETE, self-contained, well-formed HTML
+ * fragment — every paragraph gets its own <p>…</p>, nothing relies on an
+ * outer wrapper. That is not stylistic: an earlier version produced an
+ * intentionally-unbalanced fragment ("Hi Jubayer,</p><p>I was…", no leading
+ * <p> or trailing </p>) meant to complete itself once dropped inside the
+ * step's own `<p>{{step1Message}}</p>` template. A real push showed lemlist
+ * does not treat the two as one string before rendering — it stores the
+ * variable's value on its own, and something in that path "balances" an
+ * unbalanced fragment: an orphan leading </p> got an empty <p></p> inserted
+ * before it, and the unclosed trailing paragraph got a spurious </p>
+ * appended, corrupting the message. A self-contained fragment has nothing
+ * left to balance.
  */
 const toEmailHtml = (text) =>
   escapeHtml(text)
     .split(/\n{2,}/)
-    .map((paragraph) => paragraph.replace(/\n/g, '<br>'))
-    .join('</p><p>');
+    .map((paragraph) => `<p>${paragraph.replace(/\n/g, '<br>')}</p>`)
+    .join('');
 
 /**
  * Non-email fields (linkedinSend, manual) are plain text in lemlist, not HTML —
@@ -147,7 +154,11 @@ const stepsFor = (touches) => {
 
       if (channel === 'email') {
         step.subject = `{{step${order}Subject}}`;
-        step.message = `<p>{{step${order}Message}}</p>`;
+        // No outer <p>…</p> here — the variable is already a complete,
+        // self-contained HTML fragment (see toEmailHtml). Wrapping it again
+        // would nest a <p> inside a <p>, which is exactly the malformed
+        // shape that got "corrected" into corrupted output before.
+        step.message = `{{step${order}Message}}`;
       } else if (channel === 'linkedin') {
         step.message = `{{step${order}MessageText}}`;
       } else {

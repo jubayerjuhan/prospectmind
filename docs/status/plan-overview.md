@@ -3,7 +3,7 @@
 > **Single source of truth** for what's built, what's in flight, and what's next.
 > Replaces the former `current.md`, `todos.md`, and `roadmap.md` (consolidated 2026-08-08 — they had drifted out of sync with each other and with the code).
 >
-> **Last verified against the codebase:** 2026-08-24 (lemlist push: multi-channel touches, per-lead reachability, dual encoding)
+> **Last verified against the codebase:** 2026-08-24 (lemlist push: self-contained HTML fragments — a live push mangled 5 messages)
 > Architecture detail for the v2 redesign lives in [`redesign-v2.md`](redesign-v2.md).
 
 ---
@@ -105,6 +105,37 @@ paragraph breaks converted — for an email step) and `stepNMessageText` (plain,
 untouched — for LinkedIn/manual). Each step template reads whichever key is
 correct for it; a lead who can't satisfy a given step never has that step fire
 regardless of which encoding it referenced.
+
+**Third bug, found live, after the encoding fix above: the value must be a
+self-contained HTML fragment — nothing may rely on the step's own wrapper.**
+The encoding fix's first version deliberately produced an UNBALANCED fragment
+("Hi Jubayer,</p><p>I was…", no leading `<p>` or trailing `</p>`), meant to
+complete itself once substituted into the step's own
+`<p>{{step1Message}}</p>` template. A real push to a real lemlist campaign
+showed lemlist does not treat the two as one string before storing the
+variable — something in that path "balances" an unbalanced fragment on its
+own: the orphan leading `</p>` got an empty `<p></p>` inserted before it, and
+the unclosed trailing paragraph got a spurious `</p>` appended, corrupting
+five real prospects' messages in a live-pushed campaign. Confirmed by testing
+a brand-new never-before-seen contact with the same shape of value — not
+specific to one lead, a property of how lemlist stores any variable that looks
+like an HTML fragment. Fixed by making `toEmailHtml` wrap every paragraph in
+its own `<p>…</p>` and dropping the outer wrap from the step template
+entirely — verified by round-tripping the corrected value through a real
+lemlist lead and diffing it byte-for-byte against what was sent.
+
+The corrupted variables on the 5 already-pushed leads in the live
+`Demo Campaign 2` lemlist campaign were repaired in place via
+`PATCH /leads/{id}/variables` (recomputed from the same DB data, same
+function, now fixed). The campaign's STEP TEMPLATES were not repaired: by the
+time this was attempted, the sequence had been restructured directly inside
+lemlist's own UI (a conditional "has email?" branch, not the flat linear
+sequence this push created) — editing it back via API would have destroyed
+work in progress there. This is a standing risk worth naming: nothing on our
+side knows if a pushed campaign's sequence has since been hand-edited in
+lemlist, so a "Push again" from ProspectMind after that point could
+re-diverge from — or conflict with — whatever exists live. Not solved here;
+flagged for whoever picks this up next.
 
 **A reachability preview runs before every push.** `GET
 /prospect-lists/:id/lemlist-push/preview` (`previewLemlistPush` in

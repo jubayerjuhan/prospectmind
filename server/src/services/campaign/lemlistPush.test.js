@@ -109,11 +109,15 @@ test('a touch with both email-only and LinkedIn-only leads gets BOTH an email an
   assert.deepEqual(types, ['email', 'linkedinSend']);
 });
 
-test('email steps carry subject and HTML message templates', () => {
+test('an email step template references the variable with no outer wrapper', () => {
+  // The variable is already a complete, self-contained HTML fragment (every
+  // paragraph wraps itself — see toEmailHtml). Wrapping it again here would
+  // nest a <p> inside a <p>, and a real push showed lemlist "corrects" that
+  // kind of malformed nesting by mangling the stored value.
   const plan = buildPushPlan(LIST, [emailLead()]);
   const [step1] = plan.campaigns[0].steps;
   assert.equal(step1.subject, '{{step1Subject}}');
-  assert.equal(step1.message, '<p>{{step1Message}}</p>');
+  assert.equal(step1.message, '{{step1Message}}');
 });
 
 test('a linkedin step references the plain-text variable, not the HTML one, and has no subject', () => {
@@ -218,8 +222,8 @@ test('a dual-reachable lead carries both the HTML and plain-text encoding of its
   // could need — a lemlist step only fires if the lead also has the contact
   // field it requires, so an unused encoding is harmless.
   const [body] = buildPushPlan(LIST, [dualLead()]).campaigns[0].leads;
-  assert.equal(body.step1Message, 'Body one');       // HTML-safe encoding (no special chars here)
-  assert.equal(body.step1MessageText, 'Body one');   // plain encoding
+  assert.equal(body.step1Message, '<p>Body one</p>'); // HTML encoding — self-wrapped even with no special chars
+  assert.equal(body.step1MessageText, 'Body one');    // plain encoding
 });
 
 test('when both an email-only and a LinkedIn-only lead exist, a dual-reachable lead can satisfy both steps', () => {
@@ -230,35 +234,54 @@ test('when both an email-only and a LinkedIn-only lead exist, a dual-reachable l
 });
 
 // ── Message formatting ───────────────────────────────────────────────────────
-// A real lemlist send showed "Hi Jubayer,I was impressed…" — the paragraph
-// break in the generated copy ("Hi Jubayer,\n\nI was impressed…") vanished
-// instead of becoming a line break, because lemlist substitutes {{step1Message}}
-// as a literal string into `<p>{{step1Message}}</p>` with no newline handling
-// of its own. These tests reproduce that exact case.
+// Two real-push bugs, found in sequence.
+//
+// Bug 1: "Hi Jubayer,I was impressed…" — a paragraph break in the generated
+// copy ("Hi Jubayer,\n\nI was impressed…") vanished because a raw "\n\n"
+// substituted into an HTML step is just whitespace to a renderer.
+//
+// Bug 2, found only after fixing bug 1 and pushing for real: the fix's first
+// version produced an intentionally-UNBALANCED fragment ("Hi Jubayer,</p><p>I
+// was…", no leading <p> or trailing </p>), meant to complete itself once
+// dropped inside the step template's own `<p>{{step1Message}}</p>` wrapper.
+// lemlist does not treat the two as one string before storing the variable —
+// it "balanced" the orphan fragment by inserting an empty <p></p> and a
+// spurious trailing </p>, corrupting the message. The value must be a
+// complete, self-contained fragment: every paragraph wraps ITSELF.
 
-test('a blank-line paragraph break becomes a real HTML paragraph break in the email variable', () => {
+test('a blank-line paragraph break becomes its own self-contained <p> — no reliance on an outer wrapper', () => {
   const raw = "Hi Jubayer,\n\nI was impressed to see your work.\n\nBest,\n[Your Name]";
   const [body] = buildPushPlan(LIST, [emailLead({ step1Message: raw })]).campaigns[0].leads;
-  assert.equal(body.step1Message, 'Hi Jubayer,</p><p>I was impressed to see your work.</p><p>Best,<br>[Your Name]');
+  assert.equal(
+    body.step1Message,
+    '<p>Hi Jubayer,</p><p>I was impressed to see your work.</p><p>Best,<br>[Your Name]</p>'
+  );
 });
 
-test('the fixed bug: the exact real-world text no longer collapses into one run-together line', () => {
+test('bug 1, fixed: the exact real-world text no longer collapses into one run-together line', () => {
   const raw = "Hi Jubayer,\n\nI was impressed to see your work as a Founding Engineer at GoodHive.";
   const [body] = buildPushPlan(LIST, [emailLead({ step1Message: raw })]).campaigns[0].leads;
   assert.ok(!body.step1Message.includes('Jubayer,I was'), 'the paragraph break must not vanish');
-  assert.ok(body.step1Message.includes('</p><p>'), 'it must become a real paragraph break instead');
 });
 
-test('a single newline within one paragraph becomes a <br> in the email variable', () => {
+test('bug 2, fixed: the value is well-formed on its own — no orphan opening or closing tag', () => {
+  const raw = "Hi Jubayer,\n\nI was impressed to see your work as a Founding Engineer at GoodHive.";
+  const [body] = buildPushPlan(LIST, [emailLead({ step1Message: raw })]).campaigns[0].leads;
+  assert.ok(body.step1Message.startsWith('<p>'), 'must open its own first paragraph');
+  assert.ok(body.step1Message.endsWith('</p>'), 'must close its own last paragraph');
+  assert.ok(!body.step1Message.includes('<p></p>'), 'must never contain an empty paragraph');
+});
+
+test('a single newline within one paragraph becomes a <br>, and the lone paragraph is self-wrapped', () => {
   const raw = 'Line one\nLine two';
   const [body] = buildPushPlan(LIST, [emailLead({ step1Message: raw })]).campaigns[0].leads;
-  assert.equal(body.step1Message, 'Line one<br>Line two');
+  assert.equal(body.step1Message, '<p>Line one<br>Line two</p>');
 });
 
-test('HTML-special characters are escaped in the email variable', () => {
+test('HTML-special characters are escaped, inside the self-wrapped paragraph', () => {
   const raw = 'Q&A: is x < y > z a valid check?';
   const [body] = buildPushPlan(LIST, [emailLead({ step1Message: raw })]).campaigns[0].leads;
-  assert.equal(body.step1Message, 'Q&amp;A: is x &lt; y &gt; z a valid check?');
+  assert.equal(body.step1Message, '<p>Q&amp;A: is x &lt; y &gt; z a valid check?</p>');
 });
 
 test('the plain-text variable keeps raw newlines — a LinkedIn/manual field is not HTML', () => {
