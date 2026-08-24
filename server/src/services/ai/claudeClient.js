@@ -3,12 +3,12 @@
  *
  * askAI(options, { preferredProvider })
  *   preferredProvider: 'gemini' | 'groq' | 'auto' (default: 'gemini')
- *   Returns: { result, providerUsed: 'gemini' | 'groq' | 'fallback' }
+ *   Returns: { result, providerUsed: 'gemini' | 'groq' | 'local' | 'fallback' }
  *
  * askClaude(options) — backward-compatible alias; returns result directly.
  *
  * Routing logic:
- *   'gemini' → Gemini first, fallback to Groq
+ *   'gemini' → Gemini first, fallback to Groq, fallback to local AI
  *   'groq'   → Groq first (no Gemini fallback beyond Groq's own chain)
  *   'auto'   → Groq first, then Gemini (original behavior)
  *
@@ -16,10 +16,16 @@
  * sole active provider regardless of a campaign's stored `preferredAiModel`.
  * The full multi-provider routing logic below is left intact and untouched;
  * flip GROQ_ENABLED back to true to re-integrate Groq without further changes.
+ *
+ * Local AI (localAiClient.js): a self-hosted `groq-ai-api` backend that fans
+ * out across six Groq-hosted models behind one endpoint. It's a last-resort
+ * fallback after Gemini's own model+key chain is exhausted — only reached
+ * when LOCAL_AI_BASE_URL is configured; otherwise this step is a no-op.
  */
 
 import { askGroq } from './groqClient.js';
 import { askGemini } from './geminiClient.js';
+import { askLocalAI, resolveLocalAiBaseUrl } from './localAiClient.js';
 
 export class AIFallbackRequiredError extends Error {
   constructor(message) {
@@ -32,6 +38,19 @@ export class AIFallbackRequiredError extends Error {
 // branches below, but not called while this is false. Gemini is the only
 // provider actually invoked. Flip to true to restore Groq/auto/fallback routing.
 const GROQ_ENABLED = false;
+
+// Shared last-resort step: try the local AI backend, but only if it's actually
+// configured — keeps this a no-op in environments (e.g. prod) that don't run it.
+const tryLocalAI = async (options) => {
+  if (!resolveLocalAiBaseUrl()) return null;
+  try {
+    const result = await askLocalAI(options);
+    return { result, providerUsed: 'local' };
+  } catch (localError) {
+    console.warn(`[router] Local AI fallback also failed: ${localError.message}`);
+    return null;
+  }
+};
 
 /**
  * Smart AI router.
@@ -51,6 +70,8 @@ export const askAI = async (options, { preferredProvider = 'gemini' } = {}) => {
       const result = await askGemini(options);
       return { result, providerUsed: 'gemini' };
     } catch (geminiError) {
+      const local = await tryLocalAI(options);
+      if (local) return local;
       throw new AIFallbackRequiredError(`Gemini failed (Groq is currently disabled): ${geminiError.message}`);
     }
   }
@@ -73,7 +94,9 @@ export const askAI = async (options, { preferredProvider = 'gemini' } = {}) => {
       const result = await askGroq(options);
       return { result, providerUsed: 'groq' };
     } catch (groqError) {
-      throw new AIFallbackRequiredError(`Both Gemini (preferred) and Groq failed: ${groqError.message}`);
+      const local = await tryLocalAI(options);
+      if (local) return local;
+      throw new AIFallbackRequiredError(`Gemini (preferred), Groq, and local AI all failed: ${groqError.message}`);
     }
   }
 
@@ -99,7 +122,9 @@ export const askAI = async (options, { preferredProvider = 'gemini' } = {}) => {
       return { result, providerUsed: 'gemini' };
     } catch (geminiError) {
       console.warn(`[router] Gemini also failed completely: ${geminiError.message}`);
-      throw new AIFallbackRequiredError('Both Groq and Gemini AI providers failed to deliver.');
+      const local = await tryLocalAI(options);
+      if (local) return local;
+      throw new AIFallbackRequiredError('Groq, Gemini, and local AI all failed to deliver.');
     }
   }
 };

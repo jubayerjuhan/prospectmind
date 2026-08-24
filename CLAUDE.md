@@ -76,7 +76,7 @@ prospectmind/
 
 ### ⚠️ Gemini is the active AI provider, not Groq
 
-`claudeClient.js` is a router over Gemini and Groq, but `GROQ_ENABLED` is currently **false** — Gemini serves every call regardless of a campaign's stored `preferredAiModel`. The Groq path is intact and dormant; flip the flag to re-enable. The `claudeClient` / `askClaude` naming is historical: **no Anthropic API is used.**
+`claudeClient.js` is a router over Gemini and Groq, but `GROQ_ENABLED` is currently **false** — Gemini serves every call regardless of a campaign's stored `preferredAiModel`. The Groq path is intact and dormant; flip the flag to re-enable. The `claudeClient` / `askClaude` naming is historical: **no Anthropic API is used.** A third client, `localAiClient.js`, wraps a self-hosted `groq-ai-api` backend (its own Groq model fallback chain behind one endpoint) as a last-resort fallback after Gemini's full chain fails — active only when `LOCAL_AI_BASE_URL` is set.
 
 ---
 
@@ -106,6 +106,7 @@ Full table with per-file usage: `docs/architecture.md`. The essentials:
 | `GEMINI_API_KEY` | ✅ | Active AI provider |
 | `GEMINI_MODEL` / `GEMINI_FALLBACK_MODELS` | Optional | Model + fallback chain |
 | `GROQ_API_KEY` | Only if re-enabled | Dormant behind `GROQ_ENABLED` |
+| `LOCAL_AI_BASE_URL` | Optional | Self-hosted `groq-ai-api` backend; last-resort fallback after Gemini fails |
 | `JWT_SECRET` / `JWT_REFRESH_SECRET` | ✅ | Token signing keys |
 | `CLIENT_URL` | ✅ | Frontend URL for CORS + email links |
 | `SERPER_API_KEY` | Recommended | Real Google results for identity resolution |

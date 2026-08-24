@@ -46,6 +46,8 @@ askClaude(options)                      // backward-compatible alias
 
 `GROQ_ENABLED` inside `claudeClient.js` is currently **false**, so Groq is held back org-wide regardless of a campaign's stored `preferredAiModel`. The full multi-provider routing is left intact — flip the flag to re-enable Groq without other changes.
 
+**Local AI last-resort fallback:** `localAiClient.js` wraps a self-hosted `groq-ai-api` backend (fans out across 6 Groq-hosted models behind one HTTP endpoint). Every routing branch in `askAI()` reaches for it only after Gemini's own model+key chain is fully exhausted, and only if `LOCAL_AI_BASE_URL` is configured — unset, it's a no-op. `providerUsed` reports `'local'` when it serves the response.
+
 **Always call AI through `askAI()` / `askClaude()`.** Never import a provider SDK directly.
 
 ---
@@ -85,7 +87,8 @@ server/src/
     ├── ai/
     │   ├── claudeClient.js       # askAI()/askClaude() — provider router (see above)
     │   ├── geminiClient.js       # askGemini() — ACTIVE provider
-    │   └── groqClient.js         # askGroq() — dormant behind GROQ_ENABLED
+    │   ├── groqClient.js         # askGroq() — dormant behind GROQ_ENABLED
+    │   └── localAiClient.js      # askLocalAI() — self-hosted groq-ai-api, last-resort fallback
     ├── pipeline/
     │   ├── runner.js             # orchestrates every layer, updates DB per step
     │   ├── queue.js              # BullMQ queue + worker (gated by RUN_WORKERS)
@@ -222,6 +225,8 @@ api.js interceptor → POST /auth/refresh → retry original request transparent
 | `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` | geminiClient | Vertex only |
 | `GROQ_API_KEY` | groqClient | Only if `GROQ_ENABLED` |
 | `GROQ_MODEL` / `GROQ_FALLBACK_MODELS` / `GROQ_TIMEOUT_MS` / `GROQ_API_BASE_URL` | groqClient | No |
+| `LOCAL_AI_BASE_URL` | localAiClient | No — unset skips the local-AI fallback step entirely |
+| `LOCAL_AI_TIMEOUT_MS` | localAiClient | No (default 120000) |
 | **Queue** | | |
 | `REDIS_URL` | pipeline/queue.js | ✅ |
 | `RUN_WORKERS` | pipeline/queue.js | No (`false` disables workers) |
