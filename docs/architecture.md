@@ -215,8 +215,9 @@ api.js interceptor → POST /auth/refresh → retry original request transparent
 | `JWT_REFRESH_SECRET` | authController | ✅ |
 | `JWT_EXPIRES_IN` / `JWT_REFRESH_EXPIRES_IN` | authController | No (15m / 7d) |
 | **AI** | | |
-| `GEMINI_API_KEY` | geminiClient | ✅ (active provider) |
-| `GEMINI_MODEL` / `GEMINI_FALLBACK_MODELS` / `GEMINI_TIMEOUT_MS` | geminiClient | No |
+| `GEMINI_API_KEY` | geminiClient | ✅ (active provider; one-key fallback if `GEMINI_API_KEYS` is unset) |
+| `GEMINI_API_KEYS` | geminiClient | No — comma-separated AI Studio keys, rotated across on quota exhaustion. The free tier caps requests per day **per key's project**, so keys from separate projects each carry their own allowance |
+| `GEMINI_MODEL` / `GEMINI_FALLBACK_MODELS` / `GEMINI_TIMEOUT_MS` | geminiClient | No — default to alias names (`gemini-flash-lite-latest` / `gemini-flash-latest`), not pinned versions, since different keys' projects can be on different model generations |
 | `GEMINI_TRANSCRIBE_MODEL` | aiController | No (voice input) |
 | `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` | geminiClient | Vertex only |
 | `GROQ_API_KEY` | groqClient | Only if `GROQ_ENABLED` |

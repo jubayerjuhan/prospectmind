@@ -3,7 +3,7 @@
 > **Single source of truth** for what's built, what's in flight, and what's next.
 > Replaces the former `current.md`, `todos.md`, and `roadmap.md` (consolidated 2026-08-08 — they had drifted out of sync with each other and with the code).
 >
-> **Last verified against the codebase:** 2026-08-24 (outreach generation: channel skip, not substitute; lemlist push formatting)
+> **Last verified against the codebase:** 2026-08-24 (Gemini multi-key rotation; the whole model chain was dead)
 > Architecture detail for the v2 redesign lives in [`redesign-v2.md`](redesign-v2.md).
 
 ---
@@ -56,6 +56,58 @@ These shipped after the v2 phases and were never in the roadmap:
 ---
 
 ## 🔄 In flight (uncommitted working tree)
+
+**Gemini: multiple API keys, rotated on quota exhaustion; model defaults are
+now aliases, not pinned versions.**
+
+AI Studio's free tier caps requests PER DAY, PER MODEL, PER PROJECT — a key
+belongs to one project, so the cap is a property of the project, not of
+"Gemini access" generally. `GEMINI_API_KEYS` (comma-separated) lists as many
+keys as are available; `GEMINI_API_KEY` (singular) still works as a one-key
+list. `askGemini` now cycles through every key for a given model before
+falling through to the next model — a key whose quota is exhausted
+(`RESOURCE_EXHAUSTED` / "exceeded your current quota") is skipped immediately,
+no retry-with-backoff, since a day-scoped cap will not clear in seconds; a
+merely transient error still gets one retry on the same key. The starting key
+rotates per call so a run of many calls spreads across every key's allowance
+instead of every call hammering key 1 first.
+
+Found live, while verifying the above with a second real key from a different
+project: **the codebase's hardcoded/configured model chain was already
+completely dead.** `gemini-2.5-flash-lite` and `gemini-2.5-flash` were
+quota-exhausted on the older key and outright 404 ("no longer available to
+new users") on the newer one; the code's own hardcoded fallbacks
+(`gemini-2.0-flash`, `gemini-1.5-flash`) were 404 on BOTH keys. Every real
+call had been sliding through to `gemini-flash-latest` as the only surviving
+option in the chain. Fixed by defaulting to alias names —
+`gemini-flash-lite-latest` primary, `gemini-flash-latest` fallback — which
+Google resolves server-side to whatever's current for that key's project, so
+a future deprecation of the underlying model doesn't require another round of
+this same debugging. A pinned version number is a ticking deprecation.
+
+One thing investigated and deliberately NOT changed: `gemini-flash-latest`
+does not fully honor `thinkingConfig.thinkingBudget: 0` — it still spends
+~60-90 "thinking" tokens regardless. Confirmed this doesn't affect real calls
+(all use `maxTokens` in the thousands, dwarfing that overhead) — it only
+produced an empty response in a throwaway test using `maxTokens: 10`.
+Widening the `/2\.5/` regex that gates when `thinkingConfig` is sent would
+have been the wrong fix anyway: tested live, sending `thinkingConfig` to a
+3.x-named model (`gemini-3.5-flash-lite`, `gemini-3.6-flash`) is a hard 400
+`INVALID_ARGUMENT`, not a no-op — the existing regex guard is correct
+behavior, not a bug, and broadening it would have introduced real failures.
+
+Verified end-to-end with the corrected `.env`: a real call at a realistic
+token budget succeeded in ~1.3s with zero wasted attempts, versus the
+original bug report's cascade through three dead models across all
+configured fallbacks before failing outright.
+
+`server/.env` (gitignored, not shown here) was updated with both real keys
+and the new model names for local dev. **Production's Cloud Run environment
+variables have not been touched — this needs to be applied there too, or the
+live app keeps hitting the same dead model chain and single-key quota wall
+this fixed locally.**
+
+---
 
 **Outreach generation no longer substitutes a channel — it skips the step.**
 `campaignExecutor.js`'s `generateSequenceForProspect` used to reassign a
