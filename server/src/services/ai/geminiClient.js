@@ -96,6 +96,7 @@ export const askGemini = async ({
   jsonMode = false,
   fallbackModels,
   thinkingBudget = null, // 0 disables "thinking" on 2.5 models so the whole output budget goes to the answer
+  onUsage, // ({ model, promptTokens, outputTokens, thinkingTokens, totalTokens }) => void — see runOnce below
 }) => {
   const useVertex = Boolean(process.env.GOOGLE_CLOUD_PROJECT);
   const apiKeys = useVertex ? [] : resolveApiKeys();
@@ -138,6 +139,28 @@ export const askGemini = async ({
       REQUEST_TIMEOUT_MS,
       `[gemini] ${candidateModel}`
     );
+
+    // usageMetadata is what the free-tier daily cap actually counts against —
+    // logged on every call so "how many tokens does an outreach generation
+    // cost" is answerable from the logs, not a guess. onUsage lets a caller
+    // (e.g. executeCampaignOutreach, summing across a whole campaign's worth
+    // of prospects) accumulate a total instead of only ever seeing one call.
+    const usage = response.usageMetadata || {};
+    console.log(
+      `[gemini] ${candidateModel} — prompt=${usage.promptTokenCount ?? '?'} ` +
+      `output=${usage.candidatesTokenCount ?? '?'} thinking=${usage.thoughtsTokenCount ?? 0} ` +
+      `total=${usage.totalTokenCount ?? '?'}`
+    );
+    if (typeof onUsage === 'function') {
+      onUsage({
+        model: candidateModel,
+        promptTokens: usage.promptTokenCount ?? 0,
+        outputTokens: usage.candidatesTokenCount ?? 0,
+        thinkingTokens: usage.thoughtsTokenCount ?? 0,
+        totalTokens: usage.totalTokenCount ?? 0,
+      });
+    }
+
     return parseGroqResponse(response.text);
   };
 

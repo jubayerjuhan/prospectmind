@@ -143,7 +143,7 @@ const buildKnowledgeBlock = async (prospect, personaScoreEntry) => {
   ].filter(Boolean).join('\n\n');
 };
 
-const generateSequenceForProspect = async ({ prospect, personaPick, playbook, sequence, campaignGoal, callAI }) => {
+const generateSequenceForProspect = async ({ prospect, personaPick, playbook, sequence, campaignGoal, callAI, onUsage }) => {
   const knowledgeText = await buildKnowledgeBlock(prospect, personaPick);
   const available = availableChannelsFor(prospect.enrichedProfile);
 
@@ -192,7 +192,7 @@ Return JSON — one object per step, same order:
   { "stepOrder": 2, "channel": "linkedin", "body": "…" }
 ]`;
 
-  const result = await callAI({ systemPrompt: SYSTEM_PROMPT, userPrompt, maxTokens: 2048, jsonMode: true, thinkingBudget: 0 });
+  const result = await callAI({ systemPrompt: SYSTEM_PROMPT, userPrompt, maxTokens: 2048, jsonMode: true, thinkingBudget: 0, onUsage });
   return (Array.isArray(result) ? result : [])
     .filter((m) => m && typeof m.body === 'string')
     .map((m, i) => ({
@@ -257,6 +257,18 @@ export const executeCampaignOutreach = async (campaignId, { playbookId, callAI =
     console.log(`[campaign] Generating outreach for "${campaign.name}" — ${prospects.length} prospect(s), playbook "${playbook.name}"`);
 
     const results = [];
+    // Summed across every prospect in this run — the free tier's cap is per
+    // day, not per call, so "how many tokens does one Generate click cost" is
+    // a question about the WHOLE run, not any single prospect's message.
+    const tokenTotals = { promptTokens: 0, outputTokens: 0, thinkingTokens: 0, totalTokens: 0, calls: 0 };
+    const onUsage = (usage) => {
+      tokenTotals.promptTokens += usage.promptTokens;
+      tokenTotals.outputTokens += usage.outputTokens;
+      tokenTotals.thinkingTokens += usage.thinkingTokens;
+      tokenTotals.totalTokens += usage.totalTokens;
+      tokenTotals.calls += 1;
+    };
+
     for (const prospect of prospects) {
       const name = `${prospect.firstName} ${prospect.lastName || ''}`.trim();
 
@@ -281,6 +293,7 @@ export const executeCampaignOutreach = async (campaignId, { playbookId, callAI =
           sequence,
           campaignGoal,
           callAI,
+          onUsage,
         });
 
         // No step's configured channel matched anything this prospect has —
@@ -326,6 +339,12 @@ export const executeCampaignOutreach = async (campaignId, { playbookId, callAI =
     campaign.outreach.lastGeneratedAt = new Date();
     await campaign.save();
     console.log(`[campaign] ✅ "${campaign.name}" outreach ready — ${results.filter((r) => r.status === 'generated').length} generated, ${results.filter((r) => r.status === 'skipped').length} skipped`);
+    console.log(
+      `[campaign] 💰 token cost for this run: ${tokenTotals.calls} AI call(s), ` +
+      `${tokenTotals.promptTokens} prompt + ${tokenTotals.outputTokens} output ` +
+      `+ ${tokenTotals.thinkingTokens} thinking = ${tokenTotals.totalTokens} total tokens ` +
+      `(avg ${tokenTotals.calls ? Math.round(tokenTotals.totalTokens / tokenTotals.calls) : 0}/call)`
+    );
     return campaign;
   } catch (error) {
     campaign.outreach.status = 'failed';
