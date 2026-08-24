@@ -147,19 +147,20 @@ const generateSequenceForProspect = async ({ prospect, personaPick, playbook, se
   const knowledgeText = await buildKnowledgeBlock(prospect, personaPick);
   const available = availableChannelsFor(prospect.enrichedProfile);
 
-  // Per-step channel with fallback: keep the configured channel when the
-  // prospect is reachable there, otherwise fall back to email, then to the
-  // first channel we do have. (Channel-availability policy — see open
-  // questions in redesign-v2.md.)
-  const steps = sequence.map((s) => ({
-    stepOrder: s.stepOrder,
-    delayDays: s.delayDays,
-    channel: available.includes(s.channel)
-      ? s.channel
-      : available.includes('email')
-        ? 'email'
-        : available[0] || s.channel,
-  }));
+  // No fallback substitution: a step keeps the channel it was configured
+  // with, or is dropped entirely for this prospect. An earlier version
+  // reassigned an unreachable step to email-if-available, else whatever
+  // channel the prospect had — which meant a LinkedIn-only prospect facing an
+  // email→LinkedIn sequence got TWO LinkedIn touches back to back (step 1
+  // reassigned, step 2 already LinkedIn), not the one the user configured for
+  // them. Resolved open question from redesign-v2.md ("Channel availability
+  // enforcement") — explicit product decision: skip, never substitute.
+  const steps = sequence.filter((s) => available.includes(s.channel));
+
+  // Nobody reachable on any configured step — nothing to ask the AI to
+  // write. The caller (executeCampaignOutreach) treats an empty result as
+  // skipped rather than a zero-step "success".
+  if (!steps.length) return [];
 
   const userPrompt = `Write a personalized outreach sequence for this prospect.
 
@@ -281,6 +282,22 @@ export const executeCampaignOutreach = async (campaignId, { playbookId, callAI =
           campaignGoal,
           callAI,
         });
+
+        // No step's configured channel matched anything this prospect has —
+        // skip rather than record a "generated" result with nothing in it.
+        if (!messages.length) {
+          const neededChannels = [...new Set(sequence.map((s) => s.channel))];
+          results.push({
+            prospect: prospect._id,
+            prospectName: name,
+            status: 'skipped',
+            skipReason: `Not reachable on any configured channel (needs one of: ${neededChannels.join(', ')})`,
+            messages: [],
+          });
+          console.log(`[campaign]   ⏭ ${name} — not reachable on any of: ${neededChannels.join(', ')}`);
+          continue;
+        }
+
         results.push({
           prospect: prospect._id,
           prospectName: name,

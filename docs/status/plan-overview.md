@@ -3,7 +3,7 @@
 > **Single source of truth** for what's built, what's in flight, and what's next.
 > Replaces the former `current.md`, `todos.md`, and `roadmap.md` (consolidated 2026-08-08 — they had drifted out of sync with each other and with the code).
 >
-> **Last verified against the codebase:** 2026-08-24 (lemlist push: self-contained HTML fragments — a live push mangled 5 messages)
+> **Last verified against the codebase:** 2026-08-24 (outreach generation: channel skip, not substitute; lemlist push formatting)
 > Architecture detail for the v2 redesign lives in [`redesign-v2.md`](redesign-v2.md).
 
 ---
@@ -56,6 +56,32 @@ These shipped after the v2 phases and were never in the roadmap:
 ---
 
 ## 🔄 In flight (uncommitted working tree)
+
+**Outreach generation no longer substitutes a channel — it skips the step.**
+`campaignExecutor.js`'s `generateSequenceForProspect` used to reassign a
+step's channel when the prospect lacked the configured one (fall back to
+email if available, else whatever channel they had). Real symptom: a
+LinkedIn-only prospect facing an email→LinkedIn sequence got sent through as
+TWO LinkedIn touches back to back — the reassigned step 1, plus step 2 which
+was already LinkedIn — not the single LinkedIn touch the user actually
+configured for people without email. Reported directly from the generated
+output ("why is this LinkedIn both times"). Fixed: a step's channel is fixed
+by configuration; a prospect either has it or the step is dropped for them,
+no substitution. Resolves the open question in `redesign-v2.md` ("Channel
+availability enforcement") the code comment had been pointing at unanswered
+since the v2 redesign. A prospect reachable on none of a sequence's
+configured channels is now marked `skipped` with a clear reason instead of
+silently returning a "generated" result with content on the wrong channel.
+Verified against real data (Ronghui Gu — no email, LinkedIn only, an
+email→LinkedIn sequence): before the fix, 2 steps generated (LinkedIn,
+LinkedIn); after, 1 (LinkedIn only, keeping its configured 3-day delay).
+
+This directly reduces what the lemlist push (below) has to reach — fewer
+manufactured LinkedIn touches means fewer redundant lemlist steps, and a
+lead's `messages[]` more honestly reflects what the campaign was actually
+supposed to send them.
+
+---
 
 **Push a campaign into lemlist (shipped: planner, executor, client, service,
 routes, settings connector, and the button).**

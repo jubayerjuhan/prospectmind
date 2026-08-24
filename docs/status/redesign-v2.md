@@ -109,7 +109,7 @@ New endpoints, all diff-aware (only touch fields that may have changed, not a fu
 - Are Personas/Playbooks/Signals strictly per-organization, or should there be platform-level defaults every new org is seeded with (the GoodHive example in the HLD reads like a seed template)?
 - Does `Company` need its own plan-limit/usage counter, or does it ride along with the existing `Prospect` limit?
 - **Campaign targeting shape:** the HLD only says a Campaign selects "which prospects to target" / a "target audience" (§2.3, §4) — it never names a saved list object. This doc assumes `Campaign.targetList → ref ProspectList` (a persisted, reusable list). Is that the intended model, or should a campaign target prospects some other way (ad-hoc selection, a saved filter/segment query, tags)?
-- **Channel availability enforcement:** the HLD stores "available communication channels" on the Prospect (§2.1) but doesn't say what happens when a Campaign selects a channel a prospect lacks. Skip that prospect for that step, fall back to another channel, or flag it?
+- ~~**Channel availability enforcement**~~ — **Resolved 2026-08-24, explicit product decision:** SKIP that step for that prospect, never substitute another channel. An earlier version fell back to email-if-available, else whatever channel the prospect had — which put a LinkedIn-only prospect through an email→LinkedIn sequence as two LinkedIn touches back to back (the reassigned step, plus the one already configured as LinkedIn). Implemented in `campaignExecutor.js`'s `generateSequenceForProspect`; a prospect reachable on none of a sequence's configured channels is skipped with a reason, not silently substituted.
 
 ---
 
