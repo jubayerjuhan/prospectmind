@@ -231,6 +231,7 @@ api.js interceptor → POST /auth/refresh → retry original request transparent
 | **Queue** | | |
 | `REDIS_URL` | pipeline/queue.js | ✅ |
 | `RUN_WORKERS` | pipeline/queue.js | No (`false` disables workers) |
+| `PIPELINE_TIMEOUT_MS` | pipeline/queue.js | No — default 600000 (10 min); force-fails a hung job so it can't block the queue behind it |
 | `LOW_MEMORY` | scraper/browserMemory.js | No — `true` adds low-memory Chrome flags for 512 MB hosts |
 | **Enrichment sources** | | |
 | `SERPER_API_KEY` | discovery.js | Recommended (degrades gracefully) |
