@@ -13,6 +13,15 @@
 
 import puppeteer from 'puppeteer';
 import https from 'https';
+import { lowMemoryArgs } from './browserMemory.js';
+
+const LAUNCH_ARGS = [
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-blink-features=AutomationControlled',
+  '--disable-dev-shm-usage',
+  '--single-process',
+];
 
 // ─── Puppeteer scrape ─────────────────────────────────────────────────────────
 
@@ -21,7 +30,7 @@ const scrapeWithPuppeteer = async (url) => {
   try {
     browser = await puppeteer.launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled', '--disable-dev-shm-usage', '--single-process'],
+      args: [...LAUNCH_ARGS, ...lowMemoryArgs(LAUNCH_ARGS)],
     });
     const page = await browser.newPage();
     await page.setUserAgent(

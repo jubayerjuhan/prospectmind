@@ -127,7 +127,8 @@ server/src/
     │   ├── linkedinSessionAlert.js     # dead-session recording + owner email
     │   ├── companyContactScraper.js
     │   ├── githubTalentScraper.js
-    │   └── pageScraper.js
+    │   ├── pageScraper.js
+    │   └── browserMemory.js            # LOW_MEMORY Chrome flags for small hosts
     ├── finder/
     │   ├── sourceRegistry.js           # pluggable company sources
     │   └── sources/cryptojobslist.js
@@ -230,6 +231,7 @@ api.js interceptor → POST /auth/refresh → retry original request transparent
 | **Queue** | | |
 | `REDIS_URL` | pipeline/queue.js | ✅ |
 | `RUN_WORKERS` | pipeline/queue.js | No (`false` disables workers) |
+| `LOW_MEMORY` | scraper/browserMemory.js | No — `true` adds low-memory Chrome flags for 512 MB hosts |
 | **Enrichment sources** | | |
 | `SERPER_API_KEY` | discovery.js | Recommended (degrades gracefully) |
 | `GITHUB_TOKEN` | enrichment.js | No (60 → 5000 req/hr) |
