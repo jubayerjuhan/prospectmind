@@ -1,6 +1,7 @@
 import { Queue, Worker, UnrecoverableError } from 'bullmq';
 import Redis from 'ioredis';
 import { runPipeline } from './runner.js';
+import Prospect from '../../models/Prospect.js';
 import { LinkedInAuthError } from '../../utils/pipelineErrors.js';
 import { jobIdFor } from './jobId.js';
 import 'dotenv/config';
@@ -38,12 +39,39 @@ export const IDLE_POLL_OPTS = {
 // its own pair of pollers, multiplying the Redis spend by the replica count.
 export const runWorkers = process.env.RUN_WORKERS !== 'false';
 
+// Hard ceiling on one prospect's run. concurrency:1 means a single job that
+// never settles — a prospect deleted mid-run, a hung network call with no
+// timeout of its own, a live-login wait that outlives its 5-minute window —
+// blocks every other queued prospect indefinitely, with no way to recover
+// short of manually clearing Redis state (as happened in production once
+// already). runPipeline() keeps running after losing the race below, but
+// the worker moves on immediately rather than waiting on it, and the
+// prospect is marked failed so the UI stops showing it as in-progress.
+const PIPELINE_TIMEOUT_MS = positiveEnv('PIPELINE_TIMEOUT_MS', 10 * 60 * 1000);
+
 // Define the worker that processes pipeline jobs
 // Concurrency is set to 1 to run one job at a time and avoid AI rate limits
 export const pipelineWorker = !runWorkers ? null : new Worker('pipelineQueue', async (job) => {
     const { prospectId } = job.data;
     try {
-        await runPipeline(prospectId);
+        let timedOut = false;
+        const timeout = new Promise((_, reject) => {
+            setTimeout(() => {
+                timedOut = true;
+                reject(new Error(`Pipeline exceeded ${PIPELINE_TIMEOUT_MS / 1000}s and was abandoned`));
+            }, PIPELINE_TIMEOUT_MS);
+        });
+        try {
+            await Promise.race([runPipeline(prospectId), timeout]);
+        } catch (err) {
+            if (timedOut) {
+                await Prospect.findByIdAndUpdate(prospectId, {
+                    pipelineStatus: 'failed',
+                    pipelineError: err.message,
+                }).catch(() => {});
+            }
+            throw err;
+        }
     } catch (err) {
         console.error(`Queue pipeline error for ${prospectId}:`, err.message);
         // LinkedIn auth failures (especially security checkpoints) must NOT be
