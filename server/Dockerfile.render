@@ -1,0 +1,45 @@
+# ProspectMind API — Render free tier (512 MB RAM / 0.1 CPU, single instance).
+#
+# Differs from ./Dockerfile (Cloud Run) in exactly one way: no Xvfb, no x11vnc,
+# no entrypoint script. Those exist only for the headful "Live LinkedIn Login"
+# flow, and a headful Chrome will not fit alongside Node in 512 MB.
+#
+# Nothing breaks by removing them — vncBridge.js only dials 127.0.0.1:5900 when
+# a live-login browser reports `running`, which never happens here, so the
+# upgrade is rejected with 409 rather than hanging. Seed the shared
+# LinkedInSession with `npm run linkedin:cookie` from a local checkout instead.
+#
+# Headless Puppeteer IS kept — the pipeline's scrapers depend on it.
+
+FROM node:24-slim
+
+# Chrome's runtime libraries (the standard Puppeteer Debian list). Package names
+# are kept identical to ./Dockerfile, which is known to build on this base.
+# fonts-noto-color-emoji is dropped: ~150 MB of glyphs that only matter for
+# rendered screenshots, and this image only ever extracts text.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates fonts-liberation \
+    libasound2 libatk-bridge2.0-0 libatk1.0-0 libc6 libcairo2 libcups2 \
+    libdbus-1-3 libexpat1 libgbm1 libglib2.0-0 libgtk-3-0 libnspr4 libnss3 \
+    libpango-1.0-0 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 \
+    libxdamage1 libxext6 libxfixes3 libxi6 libxrandr2 libxrender1 libxss1 \
+    libxtst6 wget xdg-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY package*.json ./
+# `npm ci` runs Puppeteer's postinstall, which downloads its pinned Chrome
+# build now, at image-build time — not on every cold start.
+RUN npm ci --omit=dev
+
+COPY . .
+
+ENV NODE_ENV=production
+# Render injects PORT; server.js already reads process.env.PORT.
+EXPOSE 10000
+
+# Node and Chrome share 512 MB. Capping V8's old space at 256 MB makes Node
+# collect under pressure instead of growing until the container is OOM-killed
+# mid-scrape, which would lose the in-flight BullMQ job's progress.
+CMD ["node", "--max-old-space-size=256", "src/server.js"]

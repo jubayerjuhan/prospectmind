@@ -12,6 +12,15 @@
  */
 
 import puppeteer from 'puppeteer';
+import { lowMemoryArgs } from './browserMemory.js';
+
+const LAUNCH_ARGS = [
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-blink-features=AutomationControlled',
+  '--disable-dev-shm-usage',
+  '--single-process',
+];
 
 const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
@@ -79,7 +88,7 @@ export const scrapeCompanySite = async (website) => {
   try {
     browser = await puppeteer.launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled', '--disable-dev-shm-usage', '--single-process'],
+      args: [...LAUNCH_ARGS, ...lowMemoryArgs(LAUNCH_ARGS)],
     });
     const page = await browser.newPage();
     await page.setUserAgent(USER_AGENT);

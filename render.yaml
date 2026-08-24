@@ -1,0 +1,97 @@
+# Render Blueprint — ProspectMind API.
+#
+# One free web service running the Express API, the BullMQ pipeline worker and
+# the node-cron jobs in a single process (see server.js). The free plan gives a
+# single instance, which is why RUN_WORKERS stays true here: there is no second
+# instance to hand the queue to.
+#
+# Not managed by this file, both free and both created by hand:
+#   - MongoDB      → Atlas M0 (512 MB). Put it in the same region as `region:`
+#                    below; a cross-continent hop shows up on every request.
+#   - Redis        → Upstash free. queue.js already handles its TLS and is
+#                    already tuned to stay inside the free command quota.
+#
+# Free instances sleep after 15 minutes without HTTP traffic, which stops the
+# worker and the cron. Keep it awake with an external pinger (cron-job.org is
+# free and needs no card) hitting /api/health every 10 minutes. A month is
+# ~730 hours against a 750-hour allowance, so one always-warm service fits.
+
+services:
+  - type: web
+    name: prospectmind-api
+    runtime: docker
+    plan: free
+    # Change to the region nearest your users, then match Atlas and Upstash to it.
+    region: frankfurt
+    dockerfilePath: ./server/Dockerfile.render
+    dockerContext: ./server
+    healthCheckPath: /api/health
+    autoDeploy: true
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      # The worker runs in this process. Do not set to false — see the note above.
+      - key: RUN_WORKERS
+        value: "true"
+
+      # Adds --single-process/--no-zygote/--disable-gpu to every Puppeteer
+      # launch. Worth ~150 MB, which is the difference between finishing a
+      # LinkedIn scrape and being OOM-killed on this plan. Off everywhere else.
+      - key: LOW_MEMORY
+        value: "true"
+
+      # ── Set these in the Render dashboard (sync: false keeps them out of git) ──
+      - key: MONGODB_URI
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      # Optional: comma-separated pool that claudeClient rotates through.
+      - key: GEMINI_API_KEYS
+        sync: false
+      - key: SERPER_API_KEY
+        sync: false
+      - key: LINKEDIN_LI_AT
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: NEWSLETTER_UNSUBSCRIBE_SECRET
+        sync: false
+
+      # ── Non-secret config ─────────────────────────────────────────────────────
+      # Comma-separated; must include the Vercel production domain and any
+      # preview domains that need to reach this API.
+      - key: CLIENT_URLS
+        value: https://prospectmind.ai,https://www.prospectmind.ai
+      # Used to build unsubscribe links, so it must be this service's own URL.
+      - key: PUBLIC_API_URL
+        value: https://prospectmind-api.onrender.com
+
+      - key: JWT_EXPIRES_IN
+        value: 15m
+      - key: JWT_REFRESH_EXPIRES_IN
+        value: 7d
+
+      - key: GEMINI_MODEL
+        value: gemini-flash-lite-latest
+      - key: GEMINI_FALLBACK_MODELS
+        value: gemini-flash-latest
+
+      - key: RESEND_FROM_EMAIL
+        value: noreply@prospectmind.ai
+
+      - key: STRIPE_PRO_PRICE_ID
+        sync: false
+      - key: STRIPE_ENTERPRISE_PRICE_ID
+        sync: false

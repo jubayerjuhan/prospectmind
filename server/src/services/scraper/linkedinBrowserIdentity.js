@@ -36,6 +36,7 @@ import os from 'os';
 import path from 'path';
 import { getProxy, findProxy, isProxyReachable } from './proxyRotator.js';
 import LinkedInSession from '../../models/LinkedInSession.js';
+import { lowMemoryArgs } from './browserMemory.js';
 
 export const USE_PROXY = process.env.LINKEDIN_USE_PROXY !== 'false';
 
@@ -140,6 +141,7 @@ export const buildLaunchArgs = ({ proxy, windowSize = '1280,920', sandbox = fals
   ];
   if (!sandbox) args.push('--no-sandbox', '--disable-setuid-sandbox');
   if (proxy) args.push(`--proxy-server=${proxy.host}:${proxy.port}`);
+  args.push(...lowMemoryArgs(args));
   return args;
 };
 
